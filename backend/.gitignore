@@ -1,0 +1,232 @@
+# ============================================================
+# Environment Variables / Secrets
+# ============================================================
+.env
+.env.*
+!.env.example
+
+# Secret / credential files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+token.json
+service-account.json
+service_account.json
+secrets.json
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+pip-wheel-metadata/
+build/
+dist/
+
+# Packaging / build metadata
+MANIFEST
+*.manifest
+*.spec
+
+# ============================================================
+# Django
+# ============================================================
+
+# Local database
+db.sqlite3
+db.sqlite3-journal
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# Logs
+*.log
+logs/
+
+# Django generated files
+staticfiles/
+media/
+
+# ============================================================
+# Testing / Coverage
+# ============================================================
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================
+# Jupyter
+# ============================================================
+.ipynb_checkpoints/
+
+# ============================================================
+# IDE / Editors
+# ============================================================
+.vscode/
+.idea/
+*.iml
+
+# VS Code local history
+.history/
+
+# ============================================================
+# Operating System Files
+# ============================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux / Unix
+*~
+.nfs*
+
+# ============================================================
+# Node.js / JavaScript
+# ============================================================
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================================
+# Frontend / Extension Build Artifacts
+# ============================================================
+
+# Generic build output
+dist/
+build/
+out/
+
+# Extension build output
+extension/dist/
+extension/build/
+
+# Chrome unpacked/build artifacts
+chrome-extension/dist/
+chrome-extension/build/
+
+# Packaged browser extensions
+*.zip
+*.crx
+*.xpi
+
+# ============================================================
+# AI / ML / Embeddings
+# ============================================================
+
+# Local model weights
+*.gguf
+*.ggml
+*.safetensors
+*.pt
+*.pth
+*.bin
+
+# Vector indexes / databases
+*.faiss
+*.index
+embeddings/
+vector_db/
+vectordb/
+chroma/
+chroma_db/
+
+# AI temporary/cache output
+.ai_cache/
+ai_cache/
+
+# ============================================================
+# Generated YouTube Data
+# ============================================================
+
+# Downloaded/generated media
+transcripts/
+downloads/
+audio/
+thumbnails/
+
+# Generated notes / exports
+generated/
+exports/
+
+# Legacy data recovery exports
+/recovery/
+
+# ============================================================
+# Temporary / Backup Files
+# ============================================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.backup
+*.orig
+
+# ============================================================
+# Docker
+# ============================================================
+docker-compose.override.yml
+.docker/
+
+# ============================================================
+# Local Development / Generated Data
+# ============================================================
+
+# Local application data
+data/
+tmp/
+temp/
+
+# Local caches
+.cache/
+cache/
+EOF
+
+# ============================================================
+# IMPORTANT
+# ============================================================
+# Do NOT add broad rules such as:
+#
+# videos/
+# notes/
+# knowledge/
+# folders/
+#
+# These are application source directories in this project and
+# must remain trackable by Git.
