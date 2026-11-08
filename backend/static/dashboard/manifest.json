@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Notes",
+  "version": "0.1.0",
+  "description": "Save video-linked notes and transcripts while watching YouTube.",
+  "action": {
+    "default_title": "Open YouTube Notes"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "identity"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "https://youtube-note-veif.onrender.com/*",
+    "https://*.supabase.co/*",
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/watch*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ]
+}

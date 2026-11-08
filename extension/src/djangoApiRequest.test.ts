@@ -44,6 +44,18 @@ describe("Django API origin configuration", () => {
     );
   });
 
+  it("uses the current page origin for the web dashboard", () => {
+    vi.stubEnv("VITE_APP_TARGET", "web");
+    vi.stubEnv("VITE_DJANGO_API_ORIGIN", "http://localhost:8000");
+    vi.stubGlobal("window", {
+      location: { origin: "http://127.0.0.1:8000" },
+    });
+
+    expect(djangoApiUrl("/api/notes/")).toBe(
+      "http://127.0.0.1:8000/api/notes/",
+    );
+  });
+
   it("rejects requests sent to an unconfigured origin", async () => {
     vi.stubEnv("VITE_DJANGO_API_ORIGIN", "https://youtube-notes.onrender.com");
     const fetcher = vi.fn<typeof fetch>();

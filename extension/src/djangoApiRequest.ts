@@ -5,14 +5,18 @@ export type AccessTokenProvider = () => Promise<AuthResult<string | null>>;
 const LOCAL_DJANGO_API_ORIGIN = "http://localhost:8000";
 
 function getDjangoApiOrigin(): string {
+  if (
+    import.meta.env.VITE_APP_TARGET === "web" &&
+    typeof window !== "undefined"
+  ) {
+    return window.location.origin;
+  }
+
   const configuredOrigin =
     import.meta.env.VITE_DJANGO_API_ORIGIN?.trim() ||
     (import.meta.env.DEV
       ? LOCAL_DJANGO_API_ORIGIN
-      : import.meta.env.VITE_APP_TARGET === "web" &&
-          typeof window !== "undefined"
-        ? window.location.origin
-        : "");
+      : "");
   if (!configuredOrigin) {
     throw new Error("VITE_DJANGO_API_ORIGIN must be configured.");
   }
