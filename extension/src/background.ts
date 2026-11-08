@@ -2,7 +2,7 @@ import {
   dispatchAuthRuntimeMessage,
   getBackgroundAuth,
 } from "./backgroundAuth";
-import { fetchDjangoApi } from "./djangoApiRequest";
+import { djangoApiUrl, fetchDjangoApi } from "./djangoApiRequest";
 import { isTrustedProfileRequestSender } from "./profileApi";
 
 const backgroundAuth = getBackgroundAuth();
@@ -291,7 +291,7 @@ async function respondToFolderRequest(
 ): Promise<void> {
   try {
     const response = await fetchDjangoApiWithAuth(
-      `http://localhost:8000/api/folders/${path}`,
+      djangoApiUrl(`/api/folders/${path}`),
       {
         method,
         headers: {
@@ -336,7 +336,7 @@ async function respondToProfileRequest(
 ): Promise<void> {
   try {
     const response = await fetchDjangoApiWithAuth(
-      "http://localhost:8000/api/users/profile/",
+      djangoApiUrl("/api/users/profile/"),
       {
         method,
         headers: {
@@ -380,7 +380,7 @@ async function respondToVideoRequest(
 ): Promise<void> {
   try {
     const response = await fetchDjangoApiWithAuth(
-      `http://localhost:8000/api/videos/${path}`,
+      djangoApiUrl(`/api/videos/${path}`),
       { method: "GET" },
     );
     const responseText = await response.text();
@@ -716,7 +716,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
    * --------------------------------------------------
    */
   if (message.type === "GET_NOTES") {
-    fetchDjangoApiWithAuth("http://localhost:8000/api/notes/", {
+    fetchDjangoApiWithAuth(djangoApiUrl("/api/notes/"), {
       method: "GET",
       headers: {
       },
@@ -776,7 +776,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    fetchDjangoApiWithAuth(`http://localhost:8000/api/videos/${videoId}/`, {
+    fetchDjangoApiWithAuth(djangoApiUrl(`/api/videos/${videoId}/`), {
       method: "GET",
       headers: {
       },
@@ -826,7 +826,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     fetchDjangoApiWithAuth(
-      `http://localhost:8000/api/videos/${encodeURIComponent(videoId)}/transcript/`,
+      djangoApiUrl(`/api/videos/${encodeURIComponent(videoId)}/transcript/`),
       {
         method: "POST",
         headers: {
@@ -912,7 +912,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    fetchDjangoApiWithAuth("http://localhost:8000/api/notes/", {
+    fetchDjangoApiWithAuth(djangoApiUrl("/api/notes/"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -993,7 +993,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    fetchDjangoApiWithAuth("http://localhost:8000/api/notes/video/", {
+    fetchDjangoApiWithAuth(djangoApiUrl("/api/notes/video/"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1066,7 +1066,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    fetchDjangoApiWithAuth(`http://localhost:8000/api/notes/${noteId}/`, {
+    fetchDjangoApiWithAuth(djangoApiUrl(`/api/notes/${noteId}/`), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -1115,7 +1115,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    fetchDjangoApiWithAuth(`http://localhost:8000/api/notes/${noteId}/`, {
+    fetchDjangoApiWithAuth(djangoApiUrl(`/api/notes/${noteId}/`), {
       method: "DELETE",
       headers: {
       },
