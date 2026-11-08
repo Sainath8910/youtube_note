@@ -172,6 +172,12 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+DASHBOARD_BUILD_DIR = BASE_DIR / "static" / "dashboard"
+STATICFILES_DIRS = (
+    [BASE_DIR / "static"]
+    if DASHBOARD_BUILD_DIR.is_dir()
+    else []
+)
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",

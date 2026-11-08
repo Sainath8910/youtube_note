@@ -5,8 +5,8 @@ import type { AuthActionResult } from "./authFlow";
 import {
   getDashboardProfile,
   updateDashboardUsername,
-  type DashboardProfile,
 } from "./profileApi";
+import type { DashboardProfile } from "./profileContract";
 import "./profile.css";
 
 type ProfileLoadState =

@@ -42,7 +42,7 @@ import {
   type VideoNote,
 } from "./noteDocument";
 import { CopyButton } from "./CopyButton";
-import { getDashboardProfile } from "./profileApi";
+import { getExtensionDashboardProfile } from "./extensionProfileApi";
 import {
   captureCurrentVideoScreenshot,
   isCurrentVideoPlayerAvailable,
@@ -2860,7 +2860,7 @@ export default function Sidebar({
 
   useEffect(() => {
     let active = true;
-    void getDashboardProfile()
+    void getExtensionDashboardProfile()
       .then((profile) => {
         if (active) {
           setAccountLabel(profile.username.trim() || profile.email);

@@ -1,4 +1,5 @@
 import { normalizeNote, type DashboardNote } from "./dashboardApi";
+import { sendDashboardApiMessage } from "./dashboardTransport";
 
 export type VideoAvailability =
   | "available"
@@ -109,42 +110,23 @@ export function isVideoApiNotFound(error: unknown): boolean {
   return error instanceof VideoApiError && error.status === 404;
 }
 
-function sendVideoCommand(message: Record<string, unknown>): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    if (typeof chrome === "undefined" || !chrome.runtime?.id) {
-      reject(
-        new Error(
-          "Open this workspace from the YouTube Notes browser extension to browse videos.",
-        ),
-      );
-      return;
-    }
-
-    chrome.runtime.sendMessage(message, (response: unknown) => {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError) {
-        reject(new Error(runtimeError.message || "Extension request failed."));
-        return;
-      }
-      if (!isObject(response) || typeof response.success !== "boolean") {
-        reject(new Error("The videos service returned an invalid response."));
-        return;
-      }
-      if (!response.success) {
-        reject(
-          new VideoApiError(
-            apiMessage(response.data) ??
-              (typeof response.error === "string"
-                ? response.error
-                : "Could not complete the video request."),
-            typeof response.status === "number" ? response.status : undefined,
-          ),
-        );
-        return;
-      }
-      resolve(response.data);
-    });
-  });
+async function sendVideoCommand(
+  message: Record<string, unknown>,
+): Promise<unknown> {
+  const response = await sendDashboardApiMessage(message);
+  if (!isObject(response) || typeof response.success !== "boolean") {
+    throw new Error("The videos service returned an invalid response.");
+  }
+  if (!response.success) {
+    throw new VideoApiError(
+      apiMessage(response.data) ??
+        (typeof response.error === "string"
+          ? response.error
+          : "Could not complete the video request."),
+      typeof response.status === "number" ? response.status : undefined,
+    );
+  }
+  return response.data;
 }
 
 export function listDashboardVideos(

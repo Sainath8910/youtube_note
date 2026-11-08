@@ -3,7 +3,8 @@ import {
   getBackgroundAuth,
 } from "./backgroundAuth";
 import { djangoApiUrl, fetchDjangoApi } from "./djangoApiRequest";
-import { isTrustedProfileRequestSender } from "./profileApi";
+import { openDashboardTab } from "./openDashboardTab";
+import { isTrustedProfileRequestSender } from "./profileTrust";
 
 const backgroundAuth = getBackgroundAuth();
 const fetchDjangoApiWithAuth = fetchDjangoApi(() =>
@@ -18,73 +19,7 @@ void backgroundAuth.initialize().then((result) => {
   }
 });
 
-chrome.action.onClicked.addListener(() => {
-  const dashboardPageUrl = chrome.runtime.getURL("index.html");
-  const dashboardUrl = `${dashboardPageUrl}#/dashboard`;
-
-  chrome.tabs.query({ url: `${dashboardPageUrl}*` }, (tabs) => {
-    const queryError = chrome.runtime.lastError;
-    if (queryError) {
-      console.error(
-        "[YouTube Knowledge] Could not find an existing dashboard tab:",
-        queryError.message,
-      );
-      return;
-    }
-
-    const existingDashboardTab = tabs.find(
-      (tab) =>
-        typeof tab.url === "string" &&
-        tab.url.startsWith(dashboardPageUrl),
-    );
-    const existingDashboardTabId = existingDashboardTab?.id;
-
-    if (
-      existingDashboardTab &&
-      existingDashboardTabId !== undefined
-    ) {
-      chrome.windows.update(
-        existingDashboardTab.windowId,
-        { focused: true },
-        () => {
-          const windowError = chrome.runtime.lastError;
-          if (windowError) {
-            console.error(
-              "[YouTube Knowledge] Could not focus the dashboard window:",
-              windowError.message,
-            );
-            return;
-          }
-
-          chrome.tabs.update(
-            existingDashboardTabId,
-            { active: true, url: dashboardUrl },
-            () => {
-              const tabError = chrome.runtime.lastError;
-              if (tabError) {
-                console.error(
-                  "[YouTube Knowledge] Could not focus the dashboard tab:",
-                  tabError.message,
-                );
-              }
-            },
-          );
-        },
-      );
-      return;
-    }
-
-    chrome.tabs.create({ url: dashboardUrl }, () => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        console.error(
-          "[YouTube Knowledge] Could not open the dashboard:",
-          error.message,
-        );
-      }
-    });
-  });
-});
+chrome.action.onClicked.addListener(() => openDashboardTab(chrome));
 
 interface ScreenshotCaptureRequest {
   videoId: string;

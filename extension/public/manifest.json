@@ -14,6 +14,7 @@
   ],
   "host_permissions": [
     "http://localhost:8000/*",
+    "https://youtube-note-veif.onrender.com/*",
     "https://*.supabase.co/*",
     "https://www.youtube.com/*"
   ],

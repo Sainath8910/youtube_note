@@ -16,8 +16,9 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.urls import path,include
-from django.contrib.auth import views as auth_views
+from django.urls import include, path, re_path
+
+from .views import dashboard
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -25,4 +26,10 @@ urlpatterns = [
     path("api/folders/", include("folders.urls")),
     path("api/notes/", include("notes.urls")),
     path("api/videos/", include("videos.urls")),
+    path("", dashboard, name="dashboard"),
+    re_path(
+        r"^(?!admin(?:/|$)|api(?:/|$)|static(?:/|$)).*$",
+        dashboard,
+        name="dashboard-spa-fallback",
+    ),
 ]

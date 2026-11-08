@@ -5,6 +5,7 @@ import {
   type NoteDocument,
   type VideoNote,
 } from "./noteDocument";
+import { sendDashboardApiMessage } from "./dashboardTransport";
 
 const RECENT_NOTES_LIMIT = 5;
 const RECENT_CREATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -209,38 +210,18 @@ function normalizeSavedNote(value: unknown): DashboardNote {
 function sendNoteCommand(
   message: Record<string, unknown>,
 ): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    if (typeof chrome === "undefined" || !chrome.runtime?.id) {
-      reject(
-        new Error(
-          "Open this workspace from the YouTube Knowledge browser extension to save notes.",
-        ),
-      );
-      return;
+  return sendDashboardApiMessage(message).then((response) => {
+    if (!isObject(response) || typeof response.success !== "boolean") {
+      throw new Error("The notes service returned an invalid response.");
     }
-
-    chrome.runtime.sendMessage(message, (response: unknown) => {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError) {
-        reject(new Error(runtimeError.message || "Extension request failed."));
-        return;
-      }
-      if (!isObject(response) || typeof response.success !== "boolean") {
-        reject(new Error("The notes service returned an invalid response."));
-        return;
-      }
-      if (!response.success) {
-        reject(
-          new Error(
-            typeof response.error === "string"
-              ? response.error
-              : "Could not save the note.",
-          ),
-        );
-        return;
-      }
-      resolve(response.data);
-    });
+    if (!response.success) {
+      throw new Error(
+        typeof response.error === "string"
+          ? response.error
+          : "Could not save the note.",
+      );
+    }
+    return response.data;
   });
 }
 
@@ -386,52 +367,18 @@ function parseNotesResponse(data: unknown): DashboardNote[] {
 }
 
 function requestNotes(): Promise<DashboardNote[]> {
-  return new Promise((resolve, reject) => {
-    if (typeof chrome === "undefined" || !chrome.runtime?.id) {
-      reject(
-        new Error(
-          "Open this workspace from the YouTube Knowledge browser extension to load saved notes.",
-        ),
-      );
-      return;
+  return sendDashboardApiMessage({ type: "GET_NOTES" }).then((response) => {
+    if (!isObject(response) || typeof response.success !== "boolean") {
+      throw new Error("The notes service returned an invalid response.");
     }
-
-    chrome.runtime.sendMessage(
-      { type: "GET_NOTES" },
-      (response: unknown) => {
-        const runtimeError = chrome.runtime.lastError;
-        if (runtimeError) {
-          reject(new Error(runtimeError.message || "Extension request failed."));
-          return;
-        }
-
-        if (!isObject(response) || typeof response.success !== "boolean") {
-          reject(new Error("The notes service returned an invalid response."));
-          return;
-        }
-
-        if (response.success === false) {
-          reject(
-            new Error(
-              typeof response.error === "string"
-                ? response.error
-                : "Could not load saved notes.",
-            ),
-          );
-          return;
-        }
-
-        try {
-          resolve(parseNotesResponse(response.data));
-        } catch (error) {
-          reject(
-            error instanceof Error
-              ? error
-              : new Error("The notes service returned invalid note data."),
-          );
-        }
-      },
-    );
+    if (response.success === false) {
+      throw new Error(
+        typeof response.error === "string"
+          ? response.error
+          : "Could not load saved notes.",
+      );
+    }
+    return parseNotesResponse(response.data);
   });
 }
 

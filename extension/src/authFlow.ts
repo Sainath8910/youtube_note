@@ -7,6 +7,7 @@ import type {
   RecoveryCredentials,
   SafeAuthUser,
 } from "./backgroundAuth";
+import { isExtensionRuntime } from "./extensionRuntime";
 
 export type AuthOperation =
   | "sign_in"
@@ -184,15 +185,14 @@ function parseAuthStatus(value: unknown): AuthStatus {
   };
 }
 
-export function sendAuthRuntimeMessage(
+export async function sendAuthRuntimeMessage(
   request: AuthRuntimeRequest,
 ): Promise<AuthRuntimeResponse> {
+  if (!isExtensionRuntime()) {
+    const { sendWebAuthRuntimeMessage } = await import("./webAuth");
+    return sendWebAuthRuntimeMessage(request);
+  }
   return new Promise((resolve, reject) => {
-    if (typeof chrome === "undefined" || !chrome.runtime?.id) {
-      reject(new Error("Open this page from the YouTube Knowledge extension."));
-      return;
-    }
-
     try {
       chrome.runtime.sendMessage(request, (response: unknown) => {
         const runtimeError = chrome.runtime.lastError;
@@ -525,6 +525,8 @@ export function createAuthFlow(send: AuthMessageSender = sendAuthRuntimeMessage)
           }
           return;
         }
+
+        if (!isExtensionRuntime()) return;
 
         let status: AuthStatus;
         try {
