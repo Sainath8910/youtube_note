@@ -185,6 +185,8 @@ function parseAuthStatus(value: unknown): AuthStatus {
   };
 }
 
+class AuthStatusFailure extends Error {}
+
 export async function sendAuthRuntimeMessage(
   request: AuthRuntimeRequest,
 ): Promise<AuthRuntimeResponse> {
@@ -270,7 +272,7 @@ export function createAuthFlow(send: AuthMessageSender = sendAuthRuntimeMessage)
     }
     const result = responseResult(response);
     if (!result.success) {
-      throw new Error("Could not verify your account status. Please try again.");
+      throw new AuthStatusFailure(result.error.message);
     }
     return parseAuthStatus(result.data);
   };
@@ -306,12 +308,15 @@ export function createAuthFlow(send: AuthMessageSender = sendAuthRuntimeMessage)
       try {
         const status = await readStatus();
         if (version === attempt) applyStatus(status);
-      } catch {
+      } catch (error) {
         if (version === attempt) {
           publish({
             status: "status_error",
             pending: null,
-            message: "We couldn't verify your session. Check your connection and retry.",
+            message:
+              error instanceof AuthStatusFailure
+                ? error.message
+                : "We couldn't verify your session. Check your connection and retry.",
           });
         }
       }
