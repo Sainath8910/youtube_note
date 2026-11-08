@@ -9,12 +9,6 @@ class Video(models.Model):
         READY = "READY", "Ready"
         FAILED = "FAILED", "Failed"
 
-    class AnalysisStatus(models.TextChoices):
-        NOT_STARTED = "NOT_STARTED", "Not started"
-        ANALYZING = "ANALYZING", "Analyzing"
-        READY = "READY", "Ready"
-        FAILED = "FAILED", "Failed"
-
     youtube_id = models.CharField(
         max_length=20,
         unique=True,
@@ -70,12 +64,6 @@ class Video(models.Model):
         blank=True,
     )
 
-    analysis_status = models.CharField(
-        max_length=20,
-        choices=AnalysisStatus.choices,
-        default=AnalysisStatus.NOT_STARTED,
-    )
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -114,57 +102,3 @@ class ViewingSession(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.video}"
-
-
-class VideoAnalysis(models.Model):
-    video = models.OneToOneField(
-        Video,
-        on_delete=models.CASCADE,
-        related_name="analysis",
-    )
-    summary = models.TextField(
-        blank=True,
-        default="",
-    )
-    detailed_notes = models.JSONField(
-        default=dict,
-        blank=True,
-    )
-    topics = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    concepts = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    prerequisites = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    upcoming_topics = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    key_points = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    claims = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    questions = models.JSONField(
-        default=list,
-        blank=True,
-    )
-    model = models.CharField(
-        max_length=200,
-        blank=True,
-        default="",
-    )
-    analysis_version = models.PositiveIntegerField(
-        default=1,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)

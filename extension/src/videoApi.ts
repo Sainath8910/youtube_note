@@ -20,7 +20,6 @@ export interface VideoLibraryQuery {
   pageSize?: number;
   query?: string;
   transcriptFilter?: VideoStatusFilter;
-  analysisFilter?: VideoStatusFilter;
   sort?: VideoSortOrder;
 }
 
@@ -33,7 +32,6 @@ export interface LibraryVideo {
   youtube_url: string;
   notes_count: number;
   transcript_availability: VideoAvailability;
-  analysis_availability: VideoAvailability;
   created_at: string;
   updated_at: string;
 }
@@ -47,11 +45,6 @@ export interface VideoTranscript {
   status: string;
   language: string;
   segments: Array<{ text: string; start: number; duration: number }>;
-}
-
-export interface VideoAnalysis {
-  status: string;
-  analysis: Record<string, unknown> | null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -88,7 +81,6 @@ function isVideo(value: unknown): value is LibraryVideo {
     Number.isSafeInteger(value.notes_count) &&
     value.notes_count >= 0 &&
     isAvailability(value.transcript_availability) &&
-    isAvailability(value.analysis_availability) &&
     typeof value.created_at === "string" &&
     Number.isFinite(Date.parse(value.created_at)) &&
     typeof value.updated_at === "string" &&
@@ -117,38 +109,12 @@ export function isVideoApiNotFound(error: unknown): boolean {
   return error instanceof VideoApiError && error.status === 404;
 }
 
-const ignoredAnalysisFields = new Set([
-  "id",
-  "video",
-  "model",
-  "analysis_version",
-  "created_at",
-  "updated_at",
-]);
-
-function hasAnalysisContent(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.some(hasAnalysisContent);
-  if (!isObject(value)) return false;
-  return Object.entries(value).some(
-    ([key, entry]) =>
-      !ignoredAnalysisFields.has(key) && hasAnalysisContent(entry),
-  );
-}
-
-export function hasUsableVideoAnalysis(
-  analysis: Record<string, unknown> | null,
-): boolean {
-  return analysis !== null && hasAnalysisContent(analysis);
-}
-
 function sendVideoCommand(message: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (typeof chrome === "undefined" || !chrome.runtime?.id) {
       reject(
         new Error(
-          "Open this workspace from the YouTube Knowledge browser extension to browse videos.",
+          "Open this workspace from the YouTube Notes browser extension to browse videos.",
         ),
       );
       return;
@@ -189,7 +155,6 @@ export function listDashboardVideos(
     pageSize: query.pageSize ?? 10,
     query: query.query ?? "",
     transcriptFilter: query.transcriptFilter ?? "all",
-    analysisFilter: query.analysisFilter ?? "all",
     sort: query.sort ?? "updated",
   });
   const pendingRequest = pendingVideoListRequests.get(requestKey);
@@ -300,26 +265,6 @@ export async function getDashboardVideoTranscript(
   };
 }
 
-export async function getDashboardVideoAnalysis(
-  youtubeId: string,
-): Promise<VideoAnalysis> {
-  const data = await sendVideoCommand({
-    type: "GET_VIDEO_ANALYSIS",
-    videoId: youtubeId,
-  });
-  if (
-    !isObject(data) ||
-    typeof data.status !== "string" ||
-    (data.analysis !== null && !isObject(data.analysis))
-  ) {
-    throw new Error("The videos API returned invalid analysis.");
-  }
-  return {
-    status: data.status,
-    analysis: isObject(data.analysis) ? data.analysis : null,
-  };
-}
-
 function normalizeTranscript(data: unknown): VideoTranscript {
   if (
     !isObject(data) ||
@@ -356,26 +301,6 @@ export async function generateDashboardVideoTranscript(
   return normalizeTranscript(data);
 }
 
-export async function generateDashboardVideoAnalysis(
-  youtubeId: string,
-): Promise<VideoAnalysis> {
-  const data = await sendVideoCommand({
-    type: "ANALYZE_VIDEO",
-    videoId: youtubeId,
-  });
-  if (
-    !isObject(data) ||
-    typeof data.status !== "string" ||
-    (data.analysis !== null && !isObject(data.analysis))
-  ) {
-    throw new Error("The videos API returned invalid analysis.");
-  }
-  return {
-    status: data.status,
-    analysis: isObject(data.analysis) ? data.analysis : null,
-  };
-}
-
 export function matchesVideoSearch(video: LibraryVideo, query: string): boolean {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   return (
@@ -408,7 +333,6 @@ export function filterAndSortDashboardVideos(
   videos: LibraryVideo[],
   query: string,
   transcriptFilter: VideoStatusFilter,
-  analysisFilter: VideoStatusFilter,
   sort: VideoSortOrder,
 ): LibraryVideo[] {
   return videos
@@ -417,11 +341,6 @@ export function filterAndSortDashboardVideos(
       (video) =>
         transcriptFilter === "all" ||
         video.transcript_availability === transcriptFilter,
-    )
-    .filter(
-      (video) =>
-        analysisFilter === "all" ||
-        video.analysis_availability === analysisFilter,
     )
     .sort((left, right) => {
       if (sort === "title") return compareVideoTitle(left, right);
@@ -447,7 +366,6 @@ export function toVideoAvailability(
     case "READY":
       return hasUsableData ? "available" : "missing";
     case "FETCHING":
-    case "ANALYZING":
       return "processing";
     case "FAILED":
       return "failed";

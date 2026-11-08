@@ -2,7 +2,7 @@ import math
 
 from rest_framework import serializers
 
-from .models import Video, VideoAnalysis
+from .models import Video
 
 
 class VideoLibrarySerializer(serializers.ModelSerializer):
@@ -13,7 +13,6 @@ class VideoLibrarySerializer(serializers.ModelSerializer):
         read_only=True,
     )
     transcript_availability = serializers.SerializerMethodField()
-    analysis_availability = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
@@ -28,7 +27,6 @@ class VideoLibrarySerializer(serializers.ModelSerializer):
             "youtube_url",
             "notes_count",
             "transcript_availability",
-            "analysis_availability",
             "created_at",
             "updated_at",
         ]
@@ -63,59 +61,7 @@ class VideoLibrarySerializer(serializers.ModelSerializer):
             return "available"
         return "missing"
 
-    def get_analysis_availability(self, video):
-        statuses = {
-            Video.AnalysisStatus.ANALYZING: "processing",
-            Video.AnalysisStatus.FAILED: "failed",
-        }
-        if video.analysis_status in statuses:
-            return statuses[video.analysis_status]
-        if video.analysis_status != Video.AnalysisStatus.READY:
-            return "missing"
-        try:
-            analysis = video.analysis
-        except VideoAnalysis.DoesNotExist:
-            return "missing"
-        available_fields = (
-            analysis.summary.strip(),
-            analysis.detailed_notes,
-            analysis.topics,
-            analysis.concepts,
-            analysis.prerequisites,
-            analysis.upcoming_topics,
-            analysis.key_points,
-            analysis.claims,
-            analysis.questions,
-        )
-        return "available" if any(available_fields) else "missing"
-
-
-class VideoAnalysisSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VideoAnalysis
-        fields = [
-            "id",
-            "video",
-            "summary",
-            "detailed_notes",
-            "topics",
-            "concepts",
-            "prerequisites",
-            "upcoming_topics",
-            "key_points",
-            "claims",
-            "questions",
-            "model",
-            "analysis_version",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class VideoSerializer(serializers.ModelSerializer):
-    analysis = VideoAnalysisSerializer(read_only=True, allow_null=True)
-
     class Meta:
         model = Video
         fields = [
@@ -130,8 +76,6 @@ class VideoSerializer(serializers.ModelSerializer):
             "transcript_status",
             "transcript",
             "transcript_language",
-            "analysis_status",
-            "analysis",
             "created_at",
             "updated_at",
         ]

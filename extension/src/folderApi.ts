@@ -101,7 +101,7 @@ function sendFolderCommand(message: Record<string, unknown>): Promise<unknown> {
     if (typeof chrome === "undefined" || !chrome.runtime?.id) {
       reject(
         new Error(
-          "Open this workspace from the YouTube Knowledge browser extension to manage folders.",
+          "Open this workspace from the YouTube Notes browser extension to manage folders.",
         ),
       );
       return;

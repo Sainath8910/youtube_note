@@ -5,37 +5,21 @@ from django.db.models import Count, Max, Q
 from django.db.models.functions import Coalesce, Greatest, Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics, status
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from knowledge.models import KnowledgeChunk
 from notes.models import Note
 from notes.serializers import NoteSerializer
-
-from knowledge.services.analysis_indexing import index_video_analysis
-from knowledge.services.transcript_indexing import index_video_transcript
-
-from .models import Video, VideoAnalysis
+from .models import Video
 from .pagination import VideoLibraryPagination
-from .services.analysis import (
-    AnalysisError,
-    TranscriptNotReadyError,
-    TranscriptUnavailableForAnalysisError,
-    analyze_video,
-    build_analysis_provider_manager,
-)
 from .services.transcript import (
     TranscriptRetrievalError,
     TranscriptUnavailableError,
     fetch_youtube_transcript,
 )
-from .serializers import (
-    VideoAnalysisSerializer,
-    VideoLibrarySerializer,
-    VideoSerializer,
-)
+from .serializers import VideoLibrarySerializer, VideoSerializer
 
 logger = logging.getLogger(__name__)
 _YOUTUBE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -63,86 +47,42 @@ def _videos_for_user(user):
                 "updated_at",
             ),
         )
-        .select_related("analysis")
         .distinct()
     )
 
 
-def _ensure_transcript_indexed_for_user(video, user):
-    indexed = KnowledgeChunk.objects.filter(
-        user=user,
-        video=video,
-        source_type=KnowledgeChunk.SourceType.VIDEO_TRANSCRIPT,
-        embedding__isnull=False,
-    ).exists()
-    if indexed:
-        return
-
-    try:
-        index_video_transcript(video=video, user=user)
-    except Exception as error:
-        logger.error(
-            "Transcript indexing failed for %s (%s)",
-            video.youtube_id,
-            type(error).__name__,
-        )
-
-
-def _ensure_analysis_indexed_for_user(video, user):
-    indexed = KnowledgeChunk.objects.filter(
-        user=user,
-        video=video,
-        source_type=KnowledgeChunk.SourceType.VIDEO_ANALYSIS,
-        embedding__isnull=False,
-    ).exists()
-    if indexed:
-        return
-
-    try:
-        index_video_analysis(video=video, user=user)
-    except Exception as error:
-        logger.error(
-            "Video analysis indexing failed for %s (%s)",
-            video.youtube_id,
-            type(error).__name__,
-        )
-
-
-class VideoContextView(generics.RetrieveAPIView):
-    serializer_class = VideoSerializer
-    lookup_field = "youtube_id"
-
-    def get_queryset(self):
-        return Video.objects.all()
-
-    def retrieve(self, request, *args, **kwargs):
-        youtube_id = kwargs["youtube_id"]
+class VideoContextView(APIView):
+    def get(self, request, youtube_id):
+        if not _YOUTUBE_ID_PATTERN.fullmatch(youtube_id):
+            return Response(
+                {"error": "Invalid YouTube video ID."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            video = Video.objects.get(
-                youtube_id=youtube_id,
-            )
+            video = Video.objects.get(youtube_id=youtube_id)
         except Video.DoesNotExist:
-            return Response({
-                "saved": False,
-                "video": None,
-                "notes": [],
-            })
+            return Response(
+                {"saved": False, "video": None, "notes": []},
+                status=status.HTTP_200_OK,
+            )
 
         notes = Note.objects.filter(
             user=request.user,
             video=video,
         ).select_related("folder")
 
-        return Response({
-            "saved": True,
-            "video": VideoSerializer(video).data,
-            "notes": NoteSerializer(
-                notes,
-                many=True,
-                context={"request": request},
-            ).data,
-        })
+        return Response(
+            {
+                "saved": True,
+                "video": VideoSerializer(video).data,
+                "notes": NoteSerializer(
+                    notes,
+                    many=True,
+                    context={"request": request},
+                ).data,
+            }
+        )
 
 
 class VideoLibraryView(APIView):
@@ -160,25 +100,15 @@ class VideoLibraryView(APIView):
             )
 
         transcript_filter = request.query_params.get("transcript", "all")
-        analysis_filter = request.query_params.get("analysis", "all")
-        for name, value in (
-            ("transcript", transcript_filter),
-            ("analysis", analysis_filter),
-        ):
-            if value not in self.availability_filters:
-                raise ValidationError(
-                    {name: "Choose a valid availability filter."},
-                )
+        if transcript_filter not in self.availability_filters:
+            raise ValidationError(
+                {"transcript": "Choose a valid transcript availability filter."},
+            )
 
         if transcript_filter != "all":
             videos = self._filter_transcript_availability(
                 videos,
                 transcript_filter,
-            )
-        if analysis_filter != "all":
-            videos = self._filter_analysis_availability(
-                videos,
-                analysis_filter,
             )
 
         sort_order = request.query_params.get("sort", "updated")
@@ -217,63 +147,6 @@ class VideoLibraryView(APIView):
                 | (
                     Q(transcript_status=Video.TranscriptStatus.READY)
                     & ~usable_transcript
-                )
-            ),
-        }
-        return videos.filter(filters[availability])
-
-    @staticmethod
-    def _filter_analysis_availability(videos, availability):
-        analysis_has_content = (
-            Q(analysis__summary__gt="")
-            | (
-                Q(analysis__detailed_notes__isnull=False)
-                & ~Q(analysis__detailed_notes={})
-            )
-            | (
-                Q(analysis__topics__isnull=False)
-                & ~Q(analysis__topics=[])
-            )
-            | (
-                Q(analysis__concepts__isnull=False)
-                & ~Q(analysis__concepts=[])
-            )
-            | (
-                Q(analysis__prerequisites__isnull=False)
-                & ~Q(analysis__prerequisites=[])
-            )
-            | (
-                Q(analysis__upcoming_topics__isnull=False)
-                & ~Q(analysis__upcoming_topics=[])
-            )
-            | (
-                Q(analysis__key_points__isnull=False)
-                & ~Q(analysis__key_points=[])
-            )
-            | (
-                Q(analysis__claims__isnull=False)
-                & ~Q(analysis__claims=[])
-            )
-            | (
-                Q(analysis__questions__isnull=False)
-                & ~Q(analysis__questions=[])
-            )
-        )
-        usable_analysis = (
-            Q(analysis_status=Video.AnalysisStatus.READY)
-            & analysis_has_content
-        )
-        filters = {
-            "available": usable_analysis,
-            "processing": Q(
-                analysis_status=Video.AnalysisStatus.ANALYZING,
-            ),
-            "failed": Q(analysis_status=Video.AnalysisStatus.FAILED),
-            "missing": (
-                Q(analysis_status=Video.AnalysisStatus.NOT_STARTED)
-                | (
-                    Q(analysis_status=Video.AnalysisStatus.READY)
-                    & ~analysis_has_content
                 )
             ),
         }
@@ -331,7 +204,6 @@ class TranscriptView(APIView):
         video, _ = Video.objects.get_or_create(youtube_id=youtube_id)
 
         if video.transcript_status == Video.TranscriptStatus.READY:
-            _ensure_transcript_indexed_for_user(video, request.user)
             return self._response(video)
 
         video.transcript_status = Video.TranscriptStatus.FETCHING
@@ -375,14 +247,6 @@ class TranscriptView(APIView):
                 "updated_at",
             ]
         )
-        try:
-            index_video_transcript(video=video, user=request.user)
-        except Exception as error:
-            logger.error(
-                "Transcript indexing failed for %s (%s)",
-                youtube_id,
-                type(error).__name__,
-            )
         return self._response(video)
 
     @staticmethod
@@ -415,127 +279,4 @@ class TranscriptView(APIView):
                 "transcript_status": video.transcript_status,
             },
             status=response_status,
-        )
-
-
-class VideoAnalysisView(APIView):
-    def get(self, request, youtube_id):
-        if not _YOUTUBE_ID_PATTERN.fullmatch(youtube_id):
-            return Response(
-                {"error": "Invalid YouTube video ID."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            video = _videos_for_user(request.user).get(
-                youtube_id=youtube_id,
-            )
-        except Video.DoesNotExist:
-            return Response(
-                {"error": "Video not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        try:
-            analysis = video.analysis
-        except VideoAnalysis.DoesNotExist:
-            analysis = None
-        return Response(
-            {
-                "status": video.analysis_status,
-                "video_id": video.youtube_id,
-                "analysis": (
-                    VideoAnalysisSerializer(analysis).data
-                    if analysis is not None
-                    else None
-                ),
-            }
-        )
-
-    def post(self, request, youtube_id):
-        if not _YOUTUBE_ID_PATTERN.fullmatch(youtube_id):
-            return Response(
-                {"error": "Invalid YouTube video ID."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            video = Video.objects.get(youtube_id=youtube_id)
-        except Video.DoesNotExist:
-            return Response(
-                {"error": "Video not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if (
-            video.analysis_status == Video.AnalysisStatus.READY
-            and VideoAnalysis.objects.filter(video=video).exists()
-        ):
-            _ensure_analysis_indexed_for_user(video, request.user)
-            return self._response(video, video.analysis)
-
-        if (
-            video.transcript_status != Video.TranscriptStatus.READY
-            or not isinstance(video.transcript, list)
-            or not video.transcript
-        ):
-            return Response(
-                {
-                    "video_id": video.youtube_id,
-                    "error": (
-                        "A ready transcript is required. Retrieve the transcript "
-                        "before requesting analysis."
-                    ),
-                    "transcript_status": video.transcript_status,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        try:
-            analysis = analyze_video(
-                video,
-                build_analysis_provider_manager(),
-            )
-        except (TranscriptNotReadyError, TranscriptUnavailableForAnalysisError) as error:
-            return Response(
-                {
-                    "video_id": video.youtube_id,
-                    "error": str(error),
-                    "transcript_status": video.transcript_status,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        except AnalysisError as error:
-            logger.error(
-                "Video analysis failed for %s (%s)",
-                youtube_id,
-                type(error).__name__,
-            )
-            return Response(
-                {
-                    "video_id": video.youtube_id,
-                    "error": "Video analysis failed.",
-                    "analysis_status": Video.AnalysisStatus.FAILED,
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        try:
-            index_video_analysis(video=video, user=request.user)
-        except Exception as error:
-            logger.error(
-                "Video analysis indexing failed for %s (%s)",
-                youtube_id,
-                type(error).__name__,
-            )
-
-        return self._response(video, analysis)
-
-    @staticmethod
-    def _response(video, analysis):
-        return Response(
-            {
-                "status": Video.AnalysisStatus.READY,
-                "video_id": video.youtube_id,
-                "analysis": VideoAnalysisSerializer(analysis).data,
-            },
-            status=status.HTTP_200_OK,
         )

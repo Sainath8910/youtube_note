@@ -17,20 +17,15 @@ import {
   Video as VideoIcon,
 } from "lucide-react";
 import type { DashboardNote } from "./dashboardApi";
-import { AnalysisDisplay } from "./AnalysisDisplay";
 import {
-  getDashboardVideoAnalysis,
   getDashboardVideoDetails,
   getDashboardVideoTranscript,
-  generateDashboardVideoAnalysis,
   generateDashboardVideoTranscript,
-  hasUsableVideoAnalysis,
   isVideoApiNotFound,
   listDashboardVideos,
   toVideoAvailability,
   type LibraryVideo,
   type VideoLibraryPage,
-  type VideoAnalysis,
   type VideoAvailability,
   type VideoSortOrder,
   type VideoStatusFilter,
@@ -43,7 +38,7 @@ type LoadState<T> =
   | { status: "error"; message: string; requestKey?: string }
   | { status: "ready"; data: T; requestKey?: string };
 
-export type VideoTab = "transcript" | "analysis" | "notes";
+export type VideoTab = "transcript" | "notes";
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const EMPTY_VIDEOS: LibraryVideo[] = [];
@@ -120,8 +115,6 @@ export function VideosLibraryPage({
   const [query, setQuery] = useState("");
   const [transcriptFilter, setTranscriptFilter] =
     useState<VideoStatusFilter>("all");
-  const [analysisFilter, setAnalysisFilter] =
-    useState<VideoStatusFilter>("all");
   const [sort, setSort] = useState<VideoSortOrder>("updated");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -130,7 +123,6 @@ export function VideosLibraryPage({
     pageSize,
     query,
     transcriptFilter,
-    analysisFilter,
     sort,
   ]);
 
@@ -141,7 +133,6 @@ export function VideosLibraryPage({
       pageSize,
       query,
       transcriptFilter,
-      analysisFilter,
       sort,
     })
       .then((result) => {
@@ -172,7 +163,6 @@ export function VideosLibraryPage({
     pageSize,
     query,
     transcriptFilter,
-    analysisFilter,
     sort,
     refreshCount,
     requestKey,
@@ -204,15 +194,13 @@ export function VideosLibraryPage({
   );
   const hasFilters =
     query.trim() !== "" ||
-    transcriptFilter !== "all" ||
-    analysisFilter !== "all";
+    transcriptFilter !== "all";
   const refreshing = currentState.status === "loading" || isRefreshing;
 
   const clearFilters = () => {
     setPage(1);
     setQuery("");
     setTranscriptFilter("all");
-    setAnalysisFilter("all");
   };
 
   return (
@@ -270,26 +258,6 @@ export function VideosLibraryPage({
               if (isVideoStatusFilter(value)) {
                 setPage(1);
                 setTranscriptFilter(value);
-              }
-            }}
-          >
-            <option value="all">All statuses</option>
-            <option value="available">Available</option>
-            <option value="missing">Missing</option>
-            <option value="processing">Processing</option>
-            <option value="failed">Failed</option>
-          </select>
-          <ChevronDown size={13} aria-hidden="true" />
-        </label>
-        <label className="video-filter-field">
-          <span>AI analysis</span>
-          <select
-            value={analysisFilter}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (isVideoStatusFilter(value)) {
-                setPage(1);
-                setAnalysisFilter(value);
               }
             }}
           >
@@ -427,10 +395,6 @@ export function VideosLibraryPage({
                       <StatusBadge
                         status={video.transcript_availability}
                         label="Transcript"
-                      />
-                      <StatusBadge
-                        status={video.analysis_availability}
-                        label="AI analysis"
                       />
                     </div>
                     <p className="video-library-updated">
@@ -720,84 +684,6 @@ function TranscriptPanel({
   );
 }
 
-function AnalysisPanel({
-  state,
-  youtubeId,
-  onRetry,
-  onGenerate,
-  generating,
-  generationError,
-}: {
-  state: LoadState<VideoAnalysis>;
-  youtubeId: string;
-  onRetry: () => void;
-  onGenerate: () => void;
-  generating: boolean;
-  generationError: string | null;
-}) {
-  if (state.status === "loading") {
-    return <DetailLoading label="Loading analysis…" />;
-  }
-  if (state.status === "error") {
-    return (
-      <div className="video-detail-state is-error" role="alert">
-        <AlertCircle size={19} aria-hidden="true" />
-        <div>
-          <strong>Analysis could not be loaded</strong>
-          <p>{state.message}</p>
-          <button className="inline-action" type="button" onClick={onRetry}>
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-  const availability = toVideoAvailability(
-    state.data.status,
-    hasUsableVideoAnalysis(state.data.analysis),
-  );
-  if (availability !== "available" || !state.data.analysis) {
-    return (
-      <div className="video-detail-state">
-        <BookOpen size={21} aria-hidden="true" />
-        <div>
-          <strong>
-            {availability === "failed"
-              ? "Analysis generation failed."
-              : availability === "processing"
-                ? "Analysis is processing."
-                : "AI analysis is not available yet."}
-          </strong>
-          <p>
-            Analysis uses the saved transcript and will not run until you
-            request it.
-          </p>
-          {availability !== "processing" && (
-            <button
-              className="secondary-link"
-              type="button"
-              disabled={generating}
-              onClick={onGenerate}
-            >
-              <RefreshCw
-                className={generating ? "is-spinning" : undefined}
-                size={14}
-                aria-hidden="true"
-              />
-              {generating ? "Generating…" : "Generate analysis"}
-            </button>
-          )}
-          {generationError && (
-            <p className="video-inline-error" role="alert">{generationError}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return <AnalysisDisplay analysis={state.data.analysis} youtubeId={youtubeId} />;
-}
-
 function VideoNotesPanel({
   notes,
   onOpenNote,
@@ -932,22 +818,15 @@ export function VideoDetailPage({
   const [detailRetry, setDetailRetry] = useState(0);
   const [transcriptState, setTranscriptState] =
     useState<LoadState<VideoTranscript> | null>(null);
-  const [analysisState, setAnalysisState] =
-    useState<LoadState<VideoAnalysis> | null>(null);
   const [transcriptRetry, setTranscriptRetry] = useState(0);
-  const [analysisRetry, setAnalysisRetry] = useState(0);
   const [generatingTranscript, setGeneratingTranscript] = useState(false);
-  const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
   const [transcriptGenerationError, setTranscriptGenerationError] =
-    useState<string | null>(null);
-  const [analysisGenerationError, setAnalysisGenerationError] =
     useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [detailRefreshError, setDetailRefreshError] = useState<string | null>(
     null,
   );
   const transcriptCached = useRef(false);
-  const analysisCached = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -992,30 +871,6 @@ export function VideoDetailPage({
     };
   }, [youtubeId, activeTab, transcriptRetry]);
 
-  useEffect(() => {
-    if (activeTab !== "analysis" || analysisCached.current) return;
-    let active = true;
-    getDashboardVideoAnalysis(youtubeId)
-      .then((data) => {
-        if (active) {
-          analysisCached.current = true;
-          setAnalysisState({ status: "ready", data });
-        }
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          analysisCached.current = true;
-          setAnalysisState({
-            status: "error",
-            message: errorMessage(error, "Could not load the analysis."),
-          });
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [youtubeId, activeTab, analysisRetry]);
-
   const refreshDetails = async () => {
     setRefreshing(true);
     setDetailRefreshError(null);
@@ -1044,22 +899,6 @@ export function VideoDetailPage({
       );
     } finally {
       setGeneratingTranscript(false);
-    }
-  };
-
-  const generateAnalysis = async () => {
-    setGeneratingAnalysis(true);
-    setAnalysisGenerationError(null);
-    try {
-      const data = await generateDashboardVideoAnalysis(youtubeId);
-      setAnalysisState({ status: "ready", data });
-      await refreshDetails();
-    } catch (error) {
-      setAnalysisGenerationError(
-        errorMessage(error, "Could not generate the analysis."),
-      );
-    } finally {
-      setGeneratingAnalysis(false);
     }
   };
 
@@ -1129,10 +968,6 @@ export function VideoDetailPage({
               status={video.transcript_availability}
               label="Transcript"
             />
-            <StatusBadge
-              status={video.analysis_availability}
-              label="AI analysis"
-            />
             <span className="video-detail-note-count">
               <FileText size={13} aria-hidden="true" />
               {video.notes_count} {video.notes_count === 1 ? "note" : "notes"}
@@ -1164,7 +999,7 @@ export function VideoDetailPage({
         )}
         <div className="video-detail-toolbar">
           <nav className="video-detail-tabs" aria-label="Video details">
-            {(["notes", "analysis", "transcript"] as const).map((tab) => (
+            {(["notes", "transcript"] as const).map((tab) => (
               <button
                 className={activeTab === tab ? "is-active" : ""}
                 type="button"
@@ -1173,11 +1008,7 @@ export function VideoDetailPage({
                 key={tab}
                 onClick={() => onTabChange(tab)}
               >
-                {tab === "transcript"
-                  ? "Transcript"
-                  : tab === "analysis"
-                    ? "Analysis"
-                    : `Notes (${detail.data.notes.length})`}
+                {tab === "transcript" ? "Transcript" : `Notes (${detail.data.notes.length})`}
               </button>
             ))}
           </nav>
@@ -1208,19 +1039,6 @@ export function VideoDetailPage({
               onGenerate={() => void generateTranscript()}
               generating={generatingTranscript}
               generationError={transcriptGenerationError}
-            />
-          ) : activeTab === "analysis" ? (
-            <AnalysisPanel
-              state={analysisState ?? { status: "loading" }}
-              youtubeId={youtubeId}
-              onRetry={() => {
-                analysisCached.current = false;
-                setAnalysisState(null);
-                setAnalysisRetry((count) => count + 1);
-              }}
-              onGenerate={() => void generateAnalysis()}
-              generating={generatingAnalysis}
-              generationError={analysisGenerationError}
             />
           ) : (
             <VideoNotesPanel

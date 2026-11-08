@@ -54,8 +54,6 @@ export interface DashboardVideoContext {
   transcriptStatus: string;
   transcriptLanguage: string;
   transcript: DashboardTranscriptSegment[] | null;
-  analysisStatus: string;
-  analysis: Record<string, unknown> | null;
 }
 
 let inFlightDashboardRequest: Promise<DashboardData> | null = null;
@@ -297,14 +295,6 @@ export async function getDashboardVideoContext(
     transcript = video.transcript;
   }
 
-  if (
-    video.analysis !== null &&
-    video.analysis !== undefined &&
-    !isObject(video.analysis)
-  ) {
-    throw new Error("The video service returned invalid analysis.");
-  }
-
   return {
     transcriptStatus:
       typeof video.transcript_status === "string"
@@ -315,11 +305,6 @@ export async function getDashboardVideoContext(
         ? video.transcript_language
         : "",
     transcript,
-    analysisStatus:
-      typeof video.analysis_status === "string"
-        ? video.analysis_status
-        : "UNKNOWN",
-    analysis: isObject(video.analysis) ? video.analysis : null,
   };
 }
 

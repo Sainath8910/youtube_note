@@ -2888,6 +2888,12 @@
   margin-top: 7px;
 }
 
+.folder-operation-error {
+  margin: 4px 0;
+  color: #fca5a5;
+  font-size: 11px;
+}
+
 .folder-loading {
   display: grid;
   gap: 9px;

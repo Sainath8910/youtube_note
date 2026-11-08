@@ -1,4 +1,3 @@
-# backend/notes/views.py
 import logging
 
 from django.db import transaction
@@ -8,7 +7,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from knowledge.services.indexing import index_note
 from videos.models import Video
 from videos.serializers import VideoSerializer
 from videos.services.youtube import (
@@ -18,32 +16,9 @@ from videos.services.youtube import (
 )
 
 from .models import Note
-from .serializers import NoteAssistanceRequestSerializer, NoteSerializer
-from .services.assistance import (
-    NoteAssistanceError,
-    NoteAssistanceGenerationError,
-    StaleNoteError,
-    create_improvement_proposal,
-)
-
+from .serializers import NoteSerializer
 
 logger = logging.getLogger(__name__)
-
-
-class NoteIndexingUnavailable(APIException):
-    status_code = status.HTTP_502_BAD_GATEWAY
-    default_detail = "The note could not be synchronized to the knowledge base."
-    default_code = "note_indexing_unavailable"
-
-
-@transaction.atomic
-def _save_and_index_note(serializer, **save_kwargs):
-    note = serializer.save(**save_kwargs)
-    try:
-        index_note(note)
-    except Exception as error:
-        raise NoteIndexingUnavailable from error
-    return note
 
 
 class NoteListCreateView(generics.ListCreateAPIView):
@@ -51,14 +26,14 @@ class NoteListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return Note.objects.filter(
-            user=self.request.user
+            user=self.request.user,
         ).select_related(
             "video",
             "folder",
         )
 
     def perform_create(self, serializer):
-        _save_and_index_note(serializer, user=self.request.user)
+        serializer.save(user=self.request.user)
 
 
 class NoteDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -66,64 +41,14 @@ class NoteDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Note.objects.filter(
-            user=self.request.user
+            user=self.request.user,
         ).select_related(
             "video",
             "folder",
         )
 
     def perform_update(self, serializer):
-        _save_and_index_note(serializer)
-
-
-class NoteAssistanceView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            note = Note.objects.get(pk=pk, user=request.user)
-        except Note.DoesNotExist:
-            raise NotFound("Note not found.") from None
-
-        serializer = NoteAssistanceRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(
-                {
-                    "detail": "The note assistance request is invalid.",
-                    "code": "invalid_request",
-                    "errors": serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        values = serializer.validated_data
-        try:
-            proposal = create_improvement_proposal(
-                note=note,
-                user=request.user,
-                block_id=values["target"]["block_id"],
-                base_updated_at=values["base_updated_at"],
-            )
-        except StaleNoteError as error:
-            return Response(
-                {"detail": str(error), "code": "stale_note"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except NoteAssistanceError as error:
-            return Response(
-                {"detail": str(error), "code": error.code},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except NoteAssistanceGenerationError:
-            return Response(
-                {
-                    "detail": "AI assistance could not generate a proposal.",
-                    "code": "generation_failed",
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(proposal, status=status.HTTP_200_OK)
+        serializer.save()
 
 
 class VideoNoteCreateView(generics.CreateAPIView):
@@ -151,8 +76,7 @@ class VideoNoteCreateView(generics.CreateAPIView):
             )
         except YouTubeMetadataError:
             logger.warning(
-                "YouTube metadata unavailable for youtube_id=%s; "
-                "continuing with fallback metadata.",
+                "YouTube metadata unavailable for youtube_id=%s; continuing with fallback metadata.",
                 youtube_id,
             )
             video_metadata = {
@@ -191,7 +115,6 @@ class VideoNoteCreateView(generics.CreateAPIView):
             video.save(update_fields=updated_fields)
 
         data.pop("youtube_id", None)
-
         data["video"] = video.id
 
         serializer = self.get_serializer(
@@ -200,11 +123,7 @@ class VideoNoteCreateView(generics.CreateAPIView):
         )
 
         serializer.is_valid(raise_exception=True)
-
-        note = _save_and_index_note(
-            serializer,
-            user=request.user,
-        )
+        note = serializer.save(user=request.user)
         return Response(
             {
                 "video_created": created,

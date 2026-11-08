@@ -2,20 +2,16 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
   type Ref,
 } from "react";
 import {
   AlertCircle,
   ArrowLeft,
   ArrowUpRight,
-  Brain,
   BookOpen,
   Clapperboard,
-  Check,
   Clock3,
   Download,
-  ExternalLink,
   FileText,
   FileCode2,
   Folder,
@@ -26,7 +22,6 @@ import {
   RefreshCw,
   Search,
   Save,
-  Sparkles,
   LogOut,
   Trash2,
   UserRound,
@@ -57,7 +52,6 @@ import {
   deleteDashboardNote,
   getDashboardVideoContext,
   loadDashboardData,
-  matchesDashboardNoteSearch,
   removeDashboardNote,
   updateDashboardNoteFolder,
   updateDashboardNote,
@@ -72,39 +66,13 @@ import {
 import type { SafeAuthUser } from "./backgroundAuth";
 import { getDashboardProfile } from "./profileApi";
 import {
-  createDashboardFolder,
-  deleteDashboardFolder,
-  getDashboardFolder,
-  getDashboardFolderNotes,
-  listDashboardFolders,
-  renameDashboardFolder,
-  searchDashboardFolders,
-  type DashboardFolder,
-  type DashboardFolderSearchResult,
-} from "./folderApi";
+  FolderDetailPage,
+  FoldersPage,
+  FolderSearchPage,
+} from "./FolderPages";
+import type { DashboardFolder } from "./folderApi";
 import { FolderOrganizerDialog } from "./FolderOrganizerDialog";
-import {
-  type AskRAGScope,
-} from "./ragApi";
-import {
-  askConversation,
-  ConversationApiError,
-  createConversation,
-  deleteConversation,
-  getConversation,
-  listConversations,
-  renameConversation,
-  type Conversation,
-  type ConversationDetail,
-  type ConversationScope,
-  type ConversationSource,
-} from "./conversationApi";
-import {
-  NoteAssistanceApiError,
-  requestNoteImprovement,
-} from "./noteAssistanceApi";
 import "./dashboard.css";
-import { AnalysisDisplay } from "./AnalysisDisplay";
 import {
   VideoDetailPage,
   VideosLibraryPage,
@@ -120,7 +88,6 @@ type DashboardRoute =
   | "videos"
   | "folders"
   | "search"
-  | "knowledge"
   | "profile";
 
 type NoteWorkspaceLocation =
@@ -147,7 +114,6 @@ const navigation = [
   { route: "videos", label: "Videos", icon: Clapperboard },
   { route: "folders", label: "Folders", icon: Folder },
   { route: "search", label: "Search", icon: Search },
-  { route: "knowledge", label: "AI / Knowledge", icon: Brain },
   { route: "profile", label: "Profile", icon: UserRound },
 ] as const satisfies ReadonlyArray<{
   route: DashboardRoute;
@@ -174,11 +140,6 @@ const routeContent: Record<
     description: "Find folders and notes by folder name or note title.",
     message: "",
   },
-  knowledge: {
-    title: "AI / Knowledge",
-    description: "Ask questions grounded in your saved learning.",
-    message: "",
-  },
   profile: {
     title: "Profile",
     description: "Manage your account details and password.",
@@ -198,9 +159,7 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
       folderId: null,
       videoId: videoMatch[1],
       videoTab:
-        requestedTab === "analysis" ||
-        requestedTab === "transcript" ||
-        requestedTab === "notes"
+        requestedTab === "transcript" || requestedTab === "notes"
           ? requestedTab
           : "notes",
     };
@@ -291,20 +250,11 @@ function Dashboard({
 }) {
   const [location, setLocation] = useState<DashboardLocation>(locationFromHash);
   const route = location.route;
-  const [hasVisitedFolders, setHasVisitedFolders] = useState(
-    route === "folders" && location.folderId === null,
-  );
-  const [visitedFolderIds, setVisitedFolderIds] = useState<Set<number>>(
-    () => new Set(location.folderId === null ? [] : [location.folderId]),
-  );
   const [hasVisitedVideoLibrary, setHasVisitedVideoLibrary] = useState(
     route === "videos" && location.videoId === null,
   );
   const [visitedVideoIds, setVisitedVideoIds] = useState<Set<string>>(
     () => new Set(location.videoId === null ? [] : [location.videoId]),
-  );
-  const [hasVisitedKnowledge, setHasVisitedKnowledge] = useState(
-    route === "knowledge",
   );
   const [dashboardUsername, setDashboardUsername] = useState("");
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
@@ -365,18 +315,6 @@ function Dashboard({
 
       const nextLocation = locationFromHash(nextHash);
       const previousLocation = locationFromHash(previousHashRef.current);
-      if (nextLocation.route === "folders") {
-        if (nextLocation.folderId === null) {
-          setHasVisitedFolders(true);
-        } else {
-          const folderId = nextLocation.folderId;
-          setVisitedFolderIds((current) => {
-            const next = new Set(current);
-            next.add(folderId);
-            return next;
-          });
-        }
-      }
       if (nextLocation.route === "videos") {
         if (nextLocation.videoId === null) {
           setHasVisitedVideoLibrary(true);
@@ -388,9 +326,6 @@ function Dashboard({
             return next;
           });
         }
-      }
-      if (nextLocation.route === "knowledge") {
-        setHasVisitedKnowledge(true);
       }
       if (
         nextLocation.noteWorkspace &&
@@ -663,11 +598,7 @@ function Dashboard({
             <div>
               <p className="eyebrow">YOUR LEARNING SPACE</p>
               <h1 ref={pageHeadingRef} tabIndex={-1}>
-                {route === "dashboard"
-                  ? "Your learning space"
-                  : route === "knowledge"
-                    ? "AI Knowledge"
-                    : pageTitle}
+                {route === "dashboard" ? "Your learning space" : pageTitle}
               </h1>
               <p className="page-description">{pageDescription}</p>
             </div>
@@ -695,24 +626,6 @@ function Dashboard({
               }}
             />
           </div>
-          {hasVisitedFolders && (
-            <div hidden={route !== "folders" || location.folderId !== null}>
-              <FoldersPage />
-            </div>
-          )}
-          {[...visitedFolderIds].map((folderId) => (
-            <div
-              key={folderId}
-              hidden={route !== "folders" || location.folderId !== folderId}
-            >
-              <FolderDetailPage
-                folderId={folderId}
-                onOpenNote={(noteId) => {
-                  window.location.hash = `#/notes/${noteId}`;
-                }}
-              />
-            </div>
-          ))}
           {hasVisitedVideoLibrary && (
             <div hidden={route !== "videos" || location.videoId !== null}>
               <VideosLibraryPage
@@ -747,11 +660,6 @@ function Dashboard({
               />
             </div>
           ))}
-          {hasVisitedKnowledge && (
-            <div hidden={route !== "knowledge"}>
-              <DashboardKnowledgeWorkspace dashboardState={dashboardState} />
-            </div>
-          )}
           {route === "notes" ? (
             <NotesPage
               dashboardState={dashboardState}
@@ -768,12 +676,26 @@ function Dashboard({
             />
           ) : route === "search" ? (
             <FolderSearchPage
-              dashboardState={dashboardState}
+              notesState={
+                dashboardState.status === "ready"
+                  ? { status: "ready", data: dashboardState.data.notes }
+                  : dashboardState
+              }
               onRetryNotes={refreshDashboard}
               onOpenNote={(noteId) => {
                 window.location.hash = `#/notes/${noteId}`;
               }}
             />
+          ) : route === "folders" && location.folderId !== null ? (
+            <FolderDetailPage
+              key={location.folderId}
+              folderId={location.folderId}
+              onOpenNote={(noteId) => {
+                window.location.hash = `#/notes/${noteId}`;
+              }}
+            />
+          ) : route === "folders" ? (
+            <FoldersPage />
           ) : route === "profile" ? (
             <ProfilePage
               authenticatedUser={authenticatedUser}
@@ -782,9 +704,7 @@ function Dashboard({
               onSendPasswordRecovery={onSendPasswordRecovery}
             />
           ) : route === "dashboard" ||
-            route === "folders" ||
-            route === "videos" ||
-            route === "knowledge" ? null : (
+            route === "videos" ? null : (
             <WorkspacePlaceholder route={route} />
           )}
         </main>
@@ -809,13 +729,13 @@ function Sidebar({ activeRoute, mobileOpen, onNavigate }: SidebarProps) {
         className="brand"
         href="#/dashboard"
         onClick={onNavigate}
-        aria-label="YouTube Knowledge dashboard"
+        aria-label="YouTube Notes dashboard"
       >
         <span className="brand-mark">
           <BookOpen size={21} aria-hidden="true" />
         </span>
         <span className="brand-copy">
-          <strong>YouTube Knowledge</strong>
+          <strong>YouTube Notes</strong>
           <span>LEARNING WORKSPACE</span>
         </span>
       </a>
@@ -840,9 +760,6 @@ function Sidebar({ activeRoute, mobileOpen, onNavigate }: SidebarProps) {
       </nav>
 
       <div className="sidebar-note">
-        <span className="sidebar-note-icon">
-          <Sparkles size={17} aria-hidden="true" />
-        </span>
         <p>
           <strong>Learn as you watch</strong>
           <span>Capture ideas from any YouTube video.</span>
@@ -1363,8 +1280,6 @@ function RecentVideoCard({ video }: { video: LibraryVideo }) {
           {video.notes_count} {video.notes_count === 1 ? "note" : "notes"}
           {" · "}
           Transcript {video.transcript_availability}
-          {" · "}
-          Analysis {video.analysis_availability}
         </span>
       </span>
       <ArrowUpRight size={14} aria-hidden="true" />
@@ -1404,16 +1319,6 @@ function QuickActions({ onViewNotes }: { onViewNotes: () => void }) {
           <span className="quick-action-copy">
             <strong>Browse your notes</strong>
             <span>Review the ideas you have saved</span>
-          </span>
-          <ArrowUpRight size={16} aria-hidden="true" />
-        </a>
-        <a className="quick-action-card" href="#/knowledge">
-          <span className="quick-action-icon knowledge-action-icon">
-            <Brain size={18} aria-hidden="true" />
-          </span>
-          <span className="quick-action-copy">
-            <strong>Explore AI / Knowledge</strong>
-            <span>Ask grounded questions in the video sidebar</span>
           </span>
           <ArrowUpRight size={16} aria-hidden="true" />
         </a>
@@ -1783,14 +1688,7 @@ function structuredDocumentText(note: VideoNote): string {
     .join("\n");
 }
 
-type NoteWorkspaceMode = "read" | "write" | "transcript" | "analysis";
-
-interface NoteImprovementProposal {
-  baseUpdatedAt: string;
-  originalContent: string;
-  originalType: NoteBlock["type"];
-  suggestedContent: string;
-}
+type NoteWorkspaceMode = "read" | "write" | "transcript";
 
 type DashboardVideoContextState =
   | { status: "loading" }
@@ -1828,7 +1726,7 @@ function noteExportFileName(title: string, extension: "html" | "pdf"): string {
     .replace(/[<>:"/\\|?*]/g, "-")
     .replace(/[. ]+$/g, "")
     .slice(0, 120);
-  return `${safeTitle || "youtube-knowledge-note"}.${extension}`;
+  return `${safeTitle || "youtube-note"}.${extension}`;
 }
 
 function noteExportBlocks(note: DashboardNote): NoteBlock[] {
@@ -2488,31 +2386,6 @@ function VideoTranscriptPanel({
   );
 }
 
-function VideoAnalysisPanel({
-  state,
-  youtubeId,
-}: {
-  state: DashboardVideoContextState;
-  youtubeId?: string;
-}) {
-  if (state.status === "loading") {
-    return <p className="video-context-status">Loading the saved analysis…</p>;
-  }
-  if (state.status === "error") {
-    return <p className="video-context-status is-error">{state.message}</p>;
-  }
-  if (!state.data.analysis) {
-    return (
-      <p className="video-context-status">
-        No saved analysis is available (status: {state.data.analysisStatus.toLowerCase()}).
-      </p>
-    );
-  }
-  return (
-    <AnalysisDisplay analysis={state.data.analysis} youtubeId={youtubeId} />
-  );
-}
-
 function NoteWorkspaceLoading() {
   return (
     <main className="note-workspace-page" aria-busy="true">
@@ -2599,16 +2472,6 @@ function NoteWorkspace({
   const [newNoteFolder, setNewNoteFolder] = useState<DashboardFolder | null>(
     null,
   );
-  const [noteProposals, setNoteProposals] = useState<
-    Map<string, NoteImprovementProposal>
-  >(() => new Map());
-  const [assistanceLoadingIds, setAssistanceLoadingIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [assistanceErrors, setAssistanceErrors] = useState<
-    Map<string, string>
-  >(() => new Map());
-  const assistanceRequests = useRef(new Set<string>());
   const [thumbnailUnavailable, setThumbnailUnavailable] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
@@ -2665,7 +2528,7 @@ function NoteWorkspace({
   }, [hasVideo, note?.video_detail?.youtube_id]);
 
   const discardAndSwitchToRead = (
-    targetMode: "read" | "transcript" | "analysis" = "read",
+    targetMode: "read" | "transcript" = "read",
   ) => {
     if (
       isDirty &&
@@ -2683,220 +2546,9 @@ function NoteWorkspace({
       setNoteDocument(savedDocument);
     }
     setSaveError(null);
-    setNoteProposals(new Map());
-    setAssistanceErrors(new Map());
     setIsExportMenuOpen(false);
     onDirtyChange(false);
     setMode(targetMode);
-  };
-
-  const improveBlock = async (block: NoteBlock) => {
-    if (
-      isNew ||
-      !note ||
-      !note.updated_at ||
-      assistanceRequests.current.has(block.id)
-    ) {
-      return;
-    }
-
-    assistanceRequests.current.add(block.id);
-    setAssistanceLoadingIds((current) => new Set(current).add(block.id));
-    setAssistanceErrors((current) => {
-      const next = new Map(current);
-      next.delete(block.id);
-      return next;
-    });
-
-    try {
-      const proposal = await requestNoteImprovement(
-        note.id,
-        block.id,
-        note.updated_at,
-      );
-      setNoteProposals((current) => {
-        const next = new Map(current);
-        next.set(block.id, {
-          baseUpdatedAt: proposal.base_updated_at,
-          originalContent: block.content,
-          originalType: block.type,
-          suggestedContent: proposal.result.text,
-        });
-        return next;
-      });
-    } catch (error) {
-      const message =
-        error instanceof NoteAssistanceApiError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "AI assistance failed. Please try again.";
-      setAssistanceErrors((current) => {
-        const next = new Map(current);
-        next.set(block.id, message);
-        return next;
-      });
-    } finally {
-      assistanceRequests.current.delete(block.id);
-      setAssistanceLoadingIds((current) => {
-        const next = new Set(current);
-        next.delete(block.id);
-        return next;
-      });
-    }
-  };
-
-  const renderBlockAssistance = (block: NoteBlock) => {
-    if (
-      block.type !== "paragraph" &&
-      block.type !== "heading" &&
-      block.type !== "equation"
-    ) {
-      return null;
-    }
-
-    const persistedBlockMatches = Boolean(
-      note &&
-        !isNew &&
-        note.updated_at &&
-        savedDocument.blocks.filter(
-          (savedBlock) => savedBlock.id === block.id,
-        ).length === 1 &&
-        savedDocument.blocks.some(
-          (savedBlock) =>
-            savedBlock.id === block.id &&
-            savedBlock.type === block.type &&
-            savedBlock.content === block.content,
-        ),
-    );
-    const pending = assistanceLoadingIds.has(block.id);
-    const proposal = noteProposals.get(block.id);
-    const proposalVersionMatches =
-      proposal?.baseUpdatedAt === note?.updated_at;
-    const proposalMatchesCurrentBlock =
-      proposal?.originalContent === block.content &&
-      proposal.originalType === block.type &&
-      proposalVersionMatches;
-    const blockIdIsUnique =
-      noteDocument.blocks.filter(
-        (currentBlock) => currentBlock.id === block.id,
-      ).length === 1;
-    const canAccept =
-      Boolean(proposal && proposalMatchesCurrentBlock && blockIdIsUnique) &&
-      !pending;
-    const unsavedBlock =
-      !isNew && note !== null && !persistedBlockMatches;
-    const disabled =
-      isNew ||
-      !note?.updated_at ||
-      unsavedBlock ||
-      !blockIdIsUnique ||
-      !block.content.trim() ||
-      pending ||
-      isSaving;
-    const unavailableMessage = isNew
-      ? "Save this note before using AI assistance."
-      : unsavedBlock
-        ? "Save this note before using AI assistance."
-        : !blockIdIsUnique
-          ? "This block cannot be targeted because its ID is not unique."
-          : !block.content.trim()
-            ? "Add text to this block before using AI assistance."
-            : null;
-
-    return (
-      <div className="note-ai-assistance">
-        <button
-          className="note-ai-improve-button"
-          type="button"
-          disabled={disabled}
-          onClick={() => void improveBlock(block)}
-          aria-label={`Improve selected ${block.type} block`}
-        >
-          <Sparkles size={13} aria-hidden="true" />
-          {pending ? "Improving…" : "Improve"}
-        </button>
-        {unavailableMessage && (
-          <p className="note-ai-assistance-hint">{unavailableMessage}</p>
-        )}
-        {assistanceErrors.has(block.id) && (
-          <div className="workspace-save-error note-ai-assistance-error" role="alert">
-            <AlertCircle size={15} aria-hidden="true" />
-            <p>{assistanceErrors.get(block.id)}</p>
-          </div>
-        )}
-        {proposal && (
-          <section
-            className="note-ai-proposal"
-            aria-label={`AI suggestion for ${block.type} block`}
-          >
-            <p className="note-ai-proposal-label">
-              <Sparkles size={13} aria-hidden="true" />
-              AI suggestion
-            </p>
-            <p className="note-ai-proposal-original">
-              <strong>Original</strong>
-              <span>{proposal.originalContent}</span>
-            </p>
-            <p className="note-ai-proposal-suggestion">
-              <strong>Suggestion</strong>
-              <span>{proposal.suggestedContent}</span>
-            </p>
-            {!proposalMatchesCurrentBlock && (
-              <p className="note-ai-assistance-hint">
-                {proposalVersionMatches
-                  ? "This block changed after the suggestion was requested. Request a new suggestion before accepting."
-                  : "This note changed after the suggestion was requested. Refresh the note and try again."}
-              </p>
-            )}
-            <div className="note-ai-proposal-actions">
-              <button
-                className="note-ai-accept-button"
-                type="button"
-                disabled={!canAccept}
-                onClick={() => {
-                  if (!proposal || !canAccept) return;
-                  setNoteDocument((current) => ({
-                    ...current,
-                    blocks: current.blocks.map((currentBlock) =>
-                      currentBlock.id === block.id &&
-                      currentBlock.content === proposal.originalContent &&
-                      currentBlock.type === proposal.originalType
-                        ? {
-                            ...currentBlock,
-                            content: proposal.suggestedContent,
-                          }
-                        : currentBlock,
-                    ),
-                  }));
-                  setNoteProposals((current) => {
-                    const next = new Map(current);
-                    next.delete(block.id);
-                    return next;
-                  });
-                }}
-              >
-                <Check size={13} aria-hidden="true" />
-                Accept
-              </button>
-              <button
-                className="note-ai-reject-button"
-                type="button"
-                onClick={() => {
-                  setNoteProposals((current) => {
-                    const next = new Map(current);
-                    next.delete(block.id);
-                    return next;
-                  });
-                }}
-              >
-                Reject
-              </button>
-            </div>
-          </section>
-        )}
-      </div>
-    );
   };
 
   const saveNote = async () => {
@@ -3109,36 +2761,20 @@ function NoteWorkspace({
               WRITE
             </button>
             {hasVideo && (
-              <>
-                <button
-                  type="button"
-                  aria-pressed={mode === "transcript"}
-                  className={mode === "transcript" ? "is-active" : ""}
-                  onClick={() => {
-                    if (mode === "write") {
-                      discardAndSwitchToRead("transcript");
-                    } else {
-                      setMode("transcript");
-                    }
-                  }}
-                >
-                  TRANSCRIPT
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={mode === "analysis"}
-                  className={mode === "analysis" ? "is-active" : ""}
-                  onClick={() => {
-                    if (mode === "write") {
-                      discardAndSwitchToRead("analysis");
-                    } else {
-                      setMode("analysis");
-                    }
-                  }}
-                >
-                  ANALYSIS
-                </button>
-              </>
+              <button
+                type="button"
+                aria-pressed={mode === "transcript"}
+                className={mode === "transcript" ? "is-active" : ""}
+                onClick={() => {
+                  if (mode === "write") {
+                    discardAndSwitchToRead("transcript");
+                  } else {
+                    setMode("transcript");
+                  }
+                }}
+              >
+                TRANSCRIPT
+              </button>
             )}
           </div>
         </header>
@@ -3151,9 +2787,7 @@ function NoteWorkspace({
                   ? "READ MODE"
                   : mode === "write"
                     ? "WRITE MODE"
-                    : mode === "transcript"
-                      ? "VIDEO TRANSCRIPT"
-                      : "VIDEO ANALYSIS"}
+                    : "VIDEO TRANSCRIPT"}
               </p>
               <h1 id="workspace-title" ref={pageTitleRef} tabIndex={-1}>
                 {pageHeading}
@@ -3387,7 +3021,6 @@ function NoteWorkspace({
                   noteDocument={noteDocument}
                   colors={dashboardNoteColors}
                   onChange={setNoteDocument}
-                  renderBlockAssistance={renderBlockAssistance}
                   enableTimestampJump={false}
                   timestampContent={() => ""}
                 />
@@ -3432,11 +3065,6 @@ function NoteWorkspace({
             </div>
           ) : mode === "transcript" ? (
             <VideoTranscriptPanel state={videoContextState} />
-          ) : mode === "analysis" ? (
-            <VideoAnalysisPanel
-              state={videoContextState}
-              youtubeId={videoMetadata?.youtube_id}
-            />
           ) : null}
         </section>
       </div>
@@ -3537,7 +3165,7 @@ function NotesListState({
         </span>
         <h3>No notes saved yet</h3>
         <p>
-          Open a YouTube video and use the YouTube Knowledge sidebar to capture
+          Open a YouTube video and use the YouTube Notes sidebar to capture
           your first note.
         </p>
         <a
@@ -3661,16 +3289,6 @@ function FolderPath({
   );
 }
 
-function formatFolderDate(value: string): string {
-  const timestamp = safeDateValue(value);
-  if (timestamp === null) return "date unavailable";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(timestamp));
-}
-
 function noteDate(note: VideoNote): string {
   const value = note.created_at ?? note.updated_at;
   const timestamp = safeDateValue(value);
@@ -3692,1832 +3310,6 @@ function formatTimestamp(seconds: number): string {
     : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
-type DashboardVideoContext = {
-  youtubeId: string;
-  databaseId: number | null;
-  title: string;
-  channelName: string;
-  thumbnailUrl: string | null;
-};
-
-const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
-
-function getDashboardVideoContexts(
-  dashboardState: DashboardState,
-): DashboardVideoContext[] {
-  if (dashboardState.status !== "ready") return [];
-
-  const contexts = new Map<string, DashboardVideoContext>();
-  for (const note of dashboardState.data.notes) {
-    const metadata = note.video_detail;
-    if (note.video === null || !metadata || metadata.youtube_id === undefined) {
-      continue;
-    }
-    const youtubeId = metadata.youtube_id;
-    if (!YOUTUBE_ID_PATTERN.test(youtubeId)) continue;
-
-    const candidate: DashboardVideoContext = {
-      youtubeId,
-      databaseId: metadata.id ?? note.video ?? null,
-      title: metadata.title?.trim() || "Untitled video",
-      channelName:
-        metadata.channel_name?.trim() ||
-        metadata.channel_handle?.trim() ||
-        "",
-      thumbnailUrl: safeExternalHttpUrl(metadata.thumbnail_url),
-    };
-    const existing = contexts.get(youtubeId);
-    if (
-      !existing ||
-      (existing.title === "Untitled video" &&
-        candidate.title !== "Untitled video") ||
-      (!existing.thumbnailUrl && candidate.thumbnailUrl)
-    ) {
-      contexts.set(youtubeId, candidate);
-    }
-  }
-  return [...contexts.values()];
-}
-
-function sourceTypeLabel(source: ConversationSource): string {
-  const sourceType = source.metadata.source_type;
-  if (sourceType === "NOTE") return "Note";
-  if (sourceType === "VIDEO_TRANSCRIPT") return "Video transcript";
-  if (sourceType === "VIDEO_ANALYSIS") return "Video analysis";
-  return source.video_id === null ? "Personal knowledge" : "Video knowledge";
-}
-
-function metadataTimestamp(source: ConversationSource): number | null {
-  if (source.metadata.source_type !== "VIDEO_TRANSCRIPT") return null;
-  const seconds = source.metadata.start_seconds;
-  return typeof seconds === "number" &&
-    Number.isFinite(seconds) &&
-    seconds >= 0
-    ? Math.floor(seconds)
-    : null;
-}
-
-function conversationScopeLabel(scope: ConversationScope): string {
-  if (scope === "CURRENT_VIDEO") return "Current video";
-  if (scope === "COMBINED") return "Video + My Knowledge";
-  return "My Knowledge";
-}
-
-function conversationErrorMessage(error: unknown): string {
-  if (error instanceof ConversationApiError) {
-    if (error.status === 401 || error.status === 403) {
-      return "Your session is not authorized. Sign in again and retry.";
-    }
-    if (error.status === 404) {
-      return "This conversation or video context is no longer available.";
-    }
-    return error.message;
-  }
-  return error instanceof Error
-    ? error.message
-    : "The Conversations service could not complete the request.";
-}
-
-function conversationUpdatedLabel(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return "Recently updated";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-  }).format(timestamp);
-}
-
-function truncateConversationTitle(value: string): string {
-  const title = value.trim();
-  return title.length > 120 ? `${title.slice(0, 117)}...` : title;
-}
-
-function DashboardKnowledgeWorkspace({
-  dashboardState,
-}: {
-  dashboardState: DashboardState;
-}) {
-  const videos = getDashboardVideoContexts(dashboardState);
-  const notes =
-    dashboardState.status === "ready" ? dashboardState.data.notes : [];
-  const [scope, setScope] = useState<AskRAGScope>("PERSONAL_KB");
-  const [youtubeId, setYoutubeId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<number | null>(
-    null,
-  );
-  const [activeConversation, setActiveConversation] =
-    useState<ConversationDetail | null>(null);
-  const [isConversationListLoading, setIsConversationListLoading] =
-    useState(true);
-  const [isConversationLoading, setIsConversationLoading] = useState(false);
-  const [isAsking, setIsAsking] = useState(false);
-  const [deletingConversationId, setDeletingConversationId] = useState<
-    number | null
-  >(null);
-  const [question, setQuestion] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
-  const conversationRequestVersion = useRef(0);
-  const normalizedYoutubeId = (youtubeId ?? videos[0]?.youtubeId ?? "").trim();
-  const validVideoContext = YOUTUBE_ID_PATTERN.test(normalizedYoutubeId);
-  const currentConversationScope = activeConversation?.scope ?? scope;
-  const canAsk =
-    question.trim().length > 0 &&
-    (activeConversation !== null ||
-      scope === "PERSONAL_KB" ||
-      validVideoContext) &&
-    !isAsking &&
-    !isConversationLoading;
-
-  useEffect(() => {
-    let active = true;
-    listConversations()
-      .then((items) => {
-        if (!active) return;
-        setConversations(items);
-        setListError(null);
-      })
-      .catch((loadError: unknown) => {
-        if (!active) return;
-        setListError(conversationErrorMessage(loadError));
-      })
-      .finally(() => {
-        if (active) setIsConversationListLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  async function refreshConversations() {
-    try {
-      const items = await listConversations();
-      setConversations(items);
-      setListError(null);
-    } catch (loadError) {
-      setListError(conversationErrorMessage(loadError));
-    }
-  }
-
-  function startNewConversation() {
-    conversationRequestVersion.current += 1;
-    setActiveConversationId(null);
-    setActiveConversation(null);
-    setQuestion("");
-    setError(null);
-    setScope("PERSONAL_KB");
-    setYoutubeId(null);
-  }
-
-  async function openConversation(conversationId: number) {
-    const requestVersion = ++conversationRequestVersion.current;
-    setActiveConversationId(conversationId);
-    setActiveConversation(null);
-    setQuestion("");
-    setError(null);
-    setIsConversationLoading(true);
-    try {
-      const conversation = await getConversation(conversationId);
-      if (requestVersion !== conversationRequestVersion.current) return;
-      setActiveConversation(conversation);
-      setScope(conversation.scope);
-      setYoutubeId(conversation.youtube_id);
-    } catch (loadError) {
-      if (requestVersion === conversationRequestVersion.current) {
-        setError(conversationErrorMessage(loadError));
-      }
-    } finally {
-      if (requestVersion === conversationRequestVersion.current) {
-        setIsConversationLoading(false);
-      }
-    }
-  }
-
-  async function handleAsk(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canAsk) return;
-
-    const submittedQuestion = question.trim();
-    setError(null);
-    setIsAsking(true);
-    let conversationId = activeConversation?.id ?? null;
-    try {
-      if (conversationId === null) {
-        const created = await createConversation({
-          title: truncateConversationTitle(submittedQuestion),
-          scope,
-          youtube_id: scope === "PERSONAL_KB" ? null : normalizedYoutubeId,
-        });
-        conversationId = created.id;
-        setActiveConversationId(created.id);
-        setActiveConversation({ ...created, messages: [] });
-        setConversations((current) => [
-          created,
-          ...current.filter((item) => item.id !== created.id),
-        ]);
-      }
-
-      const turn = await askConversation(conversationId, submittedQuestion);
-      setActiveConversation((current) => {
-        if (!current || current.id !== conversationId) return current;
-        return {
-          ...turn.conversation,
-          messages: [
-            ...current.messages,
-            turn.user_message,
-            turn.assistant_message,
-          ],
-        };
-      });
-      setConversations((current) => [
-        turn.conversation,
-        ...current.filter((item) => item.id !== turn.conversation.id),
-      ]);
-      setQuestion("");
-      void refreshConversations();
-    } catch (askError) {
-      setError(conversationErrorMessage(askError));
-      if (conversationId !== null) {
-        void getConversation(conversationId)
-          .then((conversation) => {
-            setActiveConversation((current) =>
-              current?.id === conversation.id ? conversation : current,
-            );
-          })
-          .catch((refreshError: unknown) => {
-            console.error(
-              "[YouTube Knowledge] Could not refresh the conversation after an ask failure:",
-              refreshError,
-            );
-          });
-      }
-    } finally {
-      setIsAsking(false);
-    }
-  }
-
-  async function handleDeleteConversation(conversation: Conversation) {
-    if (
-      !window.confirm(`Delete "${conversation.title}" and its messages?`)
-    ) {
-      return;
-    }
-    const previousConversations = conversations;
-    const previousActiveConversation = activeConversation;
-    setDeletingConversationId(conversation.id);
-    setConversations((current) =>
-      current.filter((item) => item.id !== conversation.id),
-    );
-    if (activeConversationId === conversation.id) {
-      setActiveConversationId(null);
-      setActiveConversation(null);
-      setQuestion("");
-    }
-    setError(null);
-    try {
-      await deleteConversation(conversation.id);
-    } catch (deleteError) {
-      setError(conversationErrorMessage(deleteError));
-      setConversations(previousConversations);
-      if (previousActiveConversation?.id === conversation.id) {
-        setActiveConversationId(conversation.id);
-        setActiveConversation(previousActiveConversation);
-      }
-    } finally {
-      setDeletingConversationId(null);
-    }
-  }
-
-  async function handleRenameConversation(conversation: Conversation) {
-    const proposedTitle = window.prompt(
-      "Conversation title",
-      conversation.title,
-    );
-    if (proposedTitle === null || !proposedTitle.trim()) return;
-    try {
-      const renamed = await renameConversation(
-        conversation.id,
-        truncateConversationTitle(proposedTitle),
-      );
-      setConversations((current) =>
-        current.map((item) => (item.id === renamed.id ? renamed : item)),
-      );
-      setActiveConversation((current) =>
-        current?.id === renamed.id ? { ...current, ...renamed } : current,
-      );
-    } catch (renameError) {
-      setError(conversationErrorMessage(renameError));
-    }
-  }
-
-  function sourceVideo(
-    source: ConversationSource,
-    sourceScope: ConversationScope,
-    sourceYoutubeId: string | null,
-  ): DashboardVideoContext | null {
-    const note = notes.find((item) => item.id === source.note_id);
-    const noteVideo = note?.video_detail;
-    const noteVideoId = source.youtube_id ?? noteVideo?.youtube_id;
-    if (noteVideoId && YOUTUBE_ID_PATTERN.test(noteVideoId)) {
-      return videos.find((video) => video.youtubeId === noteVideoId) ?? {
-        youtubeId: noteVideoId,
-        databaseId: noteVideo?.id ?? note?.video ?? null,
-        title: noteVideo?.title?.trim() || "Video",
-        channelName:
-          noteVideo?.channel_name?.trim() ||
-          noteVideo?.channel_handle?.trim() ||
-          "",
-        thumbnailUrl: safeExternalHttpUrl(noteVideo?.thumbnail_url),
-      };
-    }
-
-    const matchedVideo = videos.find(
-      (video) =>
-        source.video_id !== null && video.databaseId === source.video_id,
-    );
-    if (matchedVideo) return matchedVideo;
-
-    if (
-      sourceScope === "CURRENT_VIDEO" &&
-      source.video_id !== null &&
-      sourceYoutubeId !== null &&
-      YOUTUBE_ID_PATTERN.test(sourceYoutubeId)
-    ) {
-      return {
-        youtubeId: sourceYoutubeId,
-        databaseId: source.video_id,
-        title: "Selected video",
-        channelName: "",
-        thumbnailUrl: null,
-      };
-    }
-    return null;
-  }
-
-  return (
-    <section className="knowledge-workspace" aria-labelledby="knowledge-heading">
-      <div className="knowledge-conversation-layout">
-        <aside
-          className="content-card knowledge-conversation-sidebar"
-          aria-label="AI conversations"
-        >
-          <div className="knowledge-conversation-list-heading">
-            <h2>Conversations</h2>
-            <button
-              className="knowledge-new-conversation"
-              type="button"
-              onClick={startNewConversation}
-            >
-              <Plus size={15} aria-hidden="true" />
-              New conversation
-            </button>
-          </div>
-          {listError && (
-            <div className="knowledge-error" role="alert">
-              <AlertCircle size={15} aria-hidden="true" />
-              <span>{listError}</span>
-              <button
-                className="knowledge-list-retry"
-                type="button"
-                onClick={() => void refreshConversations()}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {isConversationListLoading ? (
-            <p className="knowledge-conversation-list-status" role="status">
-              Loading conversations...
-            </p>
-          ) : conversations.length === 0 ? (
-            <p className="knowledge-conversation-list-status">
-              Your saved conversations will appear here.
-            </p>
-          ) : (
-            <ul className="knowledge-conversation-list">
-              {conversations.map((conversation) => {
-                const video = videos.find(
-                  (item) => item.youtubeId === conversation.youtube_id,
-                );
-                return (
-                  <li key={conversation.id}>
-                    <button
-                      className={`knowledge-conversation-item${
-                        activeConversationId === conversation.id
-                          ? " is-active"
-                          : ""
-                      }`}
-                      type="button"
-                      aria-current={
-                        activeConversationId === conversation.id
-                          ? "page"
-                          : undefined
-                      }
-                      onClick={() => void openConversation(conversation.id)}
-                    >
-                      <strong>{conversation.title}</strong>
-                      <span>
-                        {conversationScopeLabel(conversation.scope)}
-                        {conversation.youtube_id
-                          ? ` · ${video?.title || conversation.youtube_id}`
-                          : ""}
-                      </span>
-                      <time dateTime={conversation.updated_at}>
-                        {conversationUpdatedLabel(conversation.updated_at)}
-                      </time>
-                    </button>
-                    <div className="knowledge-conversation-actions">
-                      <button
-                        type="button"
-                        aria-label={`Rename ${conversation.title}`}
-                        onClick={() => void handleRenameConversation(conversation)}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${conversation.title}`}
-                        disabled={deletingConversationId === conversation.id}
-                        onClick={() =>
-                          void handleDeleteConversation(conversation)
-                        }
-                      >
-                        {deletingConversationId === conversation.id
-                          ? "Deleting..."
-                          : "Delete"}
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </aside>
-
-        <div className="knowledge-conversation-main">
-          <div className="content-card knowledge-question-card">
-            <div className="knowledge-card-heading">
-              <span className="knowledge-icon">
-                <Brain size={19} aria-hidden="true" />
-              </span>
-              <div>
-                <h2 id="knowledge-heading">
-                  {activeConversation
-                    ? activeConversation.title
-                    : "Start a new AI conversation"}
-                </h2>
-                <p>
-                  {activeConversation
-                    ? conversationScopeLabel(activeConversation.scope)
-                    : "Choose your knowledge context, then ask a question."}
-                </p>
-              </div>
-              {activeConversation && (
-                <button
-                  className="knowledge-rename-active"
-                  type="button"
-                  onClick={() => void handleRenameConversation(activeConversation)}
-                >
-                  Rename
-                </button>
-              )}
-            </div>
-
-            {!activeConversation && !isConversationLoading && (
-              <div className="knowledge-form knowledge-start-form">
-                <label className="knowledge-field">
-                  <span>Knowledge context</span>
-                  <select
-                    value={scope}
-                    disabled={isAsking}
-                    onChange={(event) => {
-                      const nextScope = event.target.value;
-                      if (
-                        nextScope === "CURRENT_VIDEO" ||
-                        nextScope === "PERSONAL_KB" ||
-                        nextScope === "COMBINED"
-                      ) {
-                        setScope(nextScope);
-                        setError(null);
-                      }
-                    }}
-                  >
-                    <option value="CURRENT_VIDEO">Current Video</option>
-                    <option value="PERSONAL_KB">My Knowledge</option>
-                    <option value="COMBINED">Video + My Knowledge</option>
-                  </select>
-                </label>
-                {scope !== "PERSONAL_KB" && (
-                  <div className="knowledge-video-context">
-                    <label
-                      className="knowledge-field"
-                      htmlFor="knowledge-video-id"
-                    >
-                      <span>YouTube video ID</span>
-                      <input
-                        id="knowledge-video-id"
-                        type="text"
-                        list="dashboard-knowledge-videos"
-                        value={youtubeId ?? videos[0]?.youtubeId ?? ""}
-                        placeholder="Enter an 11-character YouTube ID"
-                        autoComplete="off"
-                        disabled={isAsking}
-                        aria-invalid={
-                          normalizedYoutubeId.length > 0 && !validVideoContext
-                        }
-                        aria-describedby="knowledge-video-help"
-                        onChange={(event) => {
-                          setYoutubeId(event.target.value);
-                          setError(null);
-                        }}
-                      />
-                      <datalist id="dashboard-knowledge-videos">
-                        {videos.map((video) => (
-                          <option
-                            key={video.youtubeId}
-                            value={video.youtubeId}
-                            label={video.title}
-                          />
-                        ))}
-                      </datalist>
-                      <span
-                        id="knowledge-video-help"
-                        className="knowledge-field-help"
-                      >
-                        {validVideoContext
-                          ? "Use a saved video suggestion or enter another valid YouTube ID."
-                          : "Choose a saved video suggestion or enter a valid 11-character ID."}
-                      </span>
-                    </label>
-                    {validVideoContext && (
-                      <div className="knowledge-video-preview">
-                        {videos.find(
-                          (video) => video.youtubeId === normalizedYoutubeId,
-                        )?.thumbnailUrl ? (
-                          <img
-                            src={
-                              videos.find(
-                                (video) =>
-                                  video.youtubeId === normalizedYoutubeId,
-                              )?.thumbnailUrl ?? undefined
-                            }
-                            alt=""
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="knowledge-video-placeholder">
-                            <Video size={18} aria-hidden="true" />
-                          </span>
-                        )}
-                        <div>
-                          <strong>
-                            {videos.find(
-                              (video) =>
-                                video.youtubeId === normalizedYoutubeId,
-                            )?.title || "Selected YouTube video"}
-                          </strong>
-                          <code>{normalizedYoutubeId}</code>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeConversation && (
-              <div className="knowledge-active-context">
-                <Sparkles size={14} aria-hidden="true" />
-                <span>
-                  {conversationScopeLabel(activeConversation.scope)}
-                  {activeConversation.youtube_id
-                    ? ` · ${activeConversation.youtube_id}`
-                    : ""}
-                </span>
-              </div>
-            )}
-
-            {error && (
-              <div className="knowledge-error" role="alert">
-                <AlertCircle size={17} aria-hidden="true" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {activeConversationId !== null &&
-              (isConversationLoading || !activeConversation) && (
-                <div className="knowledge-answer-loading" role="status">
-                  <span />
-                  <span />
-                  <p>Loading conversation...</p>
-                </div>
-              )}
-
-            <div className="knowledge-thread" aria-live="polite">
-              {activeConversation?.messages.map((message) => (
-                <article
-                  className={`knowledge-message is-${message.role.toLowerCase()}`}
-                  key={message.id}
-                >
-                  <div className="knowledge-message-heading">
-                    <strong>
-                      {message.role === "USER" ? "You" : "AI"}
-                    </strong>
-                    <time dateTime={message.created_at}>
-                      {conversationUpdatedLabel(message.created_at)}
-                    </time>
-                  </div>
-                  <p className="knowledge-answer-text">{message.content}</p>
-                  {message.role === "ASSISTANT" && (
-                    <details className="knowledge-sources">
-                      <summary className="knowledge-sources-heading">
-                        <h3>Sources</h3>
-                        <span>
-                          {message.sources.length}{" "}
-                          {message.sources.length === 1 ? "source" : "sources"}
-                        </span>
-                      </summary>
-                      {message.sources.length === 0 ? (
-                        <p className="knowledge-no-sources">
-                          No matching sources were found for this answer.
-                        </p>
-                      ) : (
-                        <div className="knowledge-source-list">
-                          {message.sources.map((source, index) => {
-                            const note = notes.find(
-                              (item) => item.id === source.note_id,
-                            );
-                            const video = sourceVideo(
-                              source,
-                              activeConversation.scope,
-                              activeConversation.youtube_id,
-                            );
-                            const timestamp = metadataTimestamp(source);
-                            const timestampUrl =
-                              timestamp === null
-                                ? null
-                                : getYoutubeWatchUrl(
-                                    video?.youtubeId,
-                                    timestamp,
-                                  );
-                            const section =
-                              typeof source.metadata.section === "string"
-                                ? source.metadata.section.replaceAll("_", " ")
-                                : null;
-                            return (
-                              <article
-                                className="knowledge-source"
-                                key={`${source.chunk_id}-${index}`}
-                              >
-                                <div className="knowledge-source-heading">
-                                  <div>
-                                    <span className="knowledge-source-type">
-                                      {sourceTypeLabel(source)}
-                                    </span>
-                                    {(note?.title || video?.title || section) && (
-                                      <strong>
-                                        {note?.title ||
-                                          (video?.title !== "Selected video"
-                                            ? video?.title
-                                            : null) ||
-                                          section ||
-                                          "Video"}
-                                      </strong>
-                                    )}
-                                  </div>
-                                  {timestampUrl && timestamp !== null && (
-                                    <a
-                                      className="knowledge-timestamp-link"
-                                      href={timestampUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      <Clock3 size={13} aria-hidden="true" />
-                                      Open at {formatTimestamp(timestamp)}
-                                      <ExternalLink
-                                        size={12}
-                                        aria-hidden="true"
-                                      />
-                                    </a>
-                                  )}
-                                </div>
-                                <p className="knowledge-source-excerpt">
-                                  {source.content}
-                                </p>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </details>
-                  )}
-                </article>
-              ))}
-              {isAsking && (
-                <div className="knowledge-answer-loading" role="status">
-                  <span />
-                  <span />
-                  <p>Searching sources and preparing an answer...</p>
-                </div>
-              )}
-              {!activeConversation && !isConversationLoading && (
-                <div className="knowledge-answer-prompt">
-                  <span className="knowledge-prompt-icon">
-                    <BookOpen size={20} aria-hidden="true" />
-                  </span>
-                  <p>
-                    Start a conversation by asking a question. No conversation
-                    is saved until you submit.
-                  </p>
-                </div>
-              )}
-              {activeConversation?.messages.length === 0 && !isAsking && (
-                <div className="knowledge-answer-prompt">
-                  <span className="knowledge-prompt-icon">
-                    <BookOpen size={20} aria-hidden="true" />
-                  </span>
-                  <p>Ask a question to begin this conversation.</p>
-                </div>
-              )}
-            </div>
-
-            {!isConversationLoading && (
-              <form
-                className="knowledge-form knowledge-question-form"
-                onSubmit={(event) => void handleAsk(event)}
-              >
-                <label
-                  className="knowledge-field"
-                  htmlFor="knowledge-question"
-                >
-                  <span>Your question</span>
-                  <textarea
-                    id="knowledge-question"
-                    value={question}
-                    rows={3}
-                    placeholder="Ask a question about your notes or video knowledge..."
-                    disabled={isAsking}
-                    onChange={(event) => {
-                      setQuestion(event.target.value);
-                      setError(null);
-                    }}
-                  />
-                </label>
-                <div className="knowledge-form-footer">
-                  <span>
-                    {currentConversationScope === "PERSONAL_KB"
-                      ? "Searching your personal knowledge"
-                      : currentConversationScope === "CURRENT_VIDEO"
-                        ? "Searching knowledge for the selected video"
-                        : "Searching the video and your personal knowledge"}
-                  </span>
-                  <button
-                    className="knowledge-ask-button"
-                    type="submit"
-                    disabled={!canAsk}
-                  >
-                    {isAsking ? (
-                      <>
-                        <RefreshCw
-                          className="is-spinning"
-                          size={16}
-                          aria-hidden="true"
-                        />
-                        Generating...
-                      </>
-                    ) : error ? (
-                      <>
-                        <RefreshCw size={16} aria-hidden="true" />
-                        Try again
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} aria-hidden="true" />
-                        Ask AI
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-type FolderPageState =
-  | { status: "loading"; folders: DashboardFolder[] }
-  | { status: "error"; folders: DashboardFolder[]; message: string }
-  | { status: "ready"; folders: DashboardFolder[] };
-
-function FolderCreateForm({
-  parentId,
-  onCreated,
-  onCancel,
-}: {
-  parentId: number | null;
-  onCreated: () => void;
-  onCancel: () => void;
-}) {
-  const [folderName, setFolderName] = useState("");
-  const [folderDescription, setFolderDescription] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-
-  const handleCreateFolder = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setCreateError(null);
-    setIsCreating(true);
-
-    try {
-      await createDashboardFolder({
-        name: folderName,
-        description: folderDescription,
-        parent: parentId,
-      });
-      onCreated();
-    } catch (error) {
-      setCreateError(
-        error instanceof Error ? error.message : "Could not create this folder.",
-      );
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  return (
-    <form
-      className="folder-create-form"
-      id="folder-create-form"
-      onSubmit={(event) => void handleCreateFolder(event)}
-    >
-      <label htmlFor="folder-name">Name</label>
-      <input
-        id="folder-name"
-        value={folderName}
-        onChange={(event) => {
-          setFolderName(event.target.value);
-          setCreateError(null);
-        }}
-        maxLength={255}
-        required
-        autoFocus
-      />
-      <label htmlFor="folder-description">Description (optional)</label>
-      <textarea
-        id="folder-description"
-        value={folderDescription}
-        onChange={(event) => setFolderDescription(event.target.value)}
-        rows={3}
-      />
-      {createError && (
-        <div className="inline-state error-state" role="alert">
-          <AlertCircle size={18} aria-hidden="true" />
-          <div>
-            <strong>Folder could not be created</strong>
-            <p>{createError}</p>
-          </div>
-        </div>
-      )}
-      <div className="folder-form-actions">
-        <button
-          className="workspace-secondary-button"
-          type="button"
-          onClick={onCancel}
-          disabled={isCreating}
-        >
-          Cancel
-        </button>
-        <button
-          className="workspace-save-button"
-          type="submit"
-          disabled={isCreating || !folderName.trim()}
-        >
-          {isCreating ? (
-            <>
-              <RefreshCw
-                className="is-spinning"
-                size={15}
-                aria-hidden="true"
-              />
-              Creating…
-            </>
-          ) : (
-            <>
-              <Plus size={15} aria-hidden="true" />
-              Create
-            </>
-          )}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function FoldersPage() {
-  const [folderState, setFolderState] = useState<FolderPageState>({
-    status: "loading",
-    folders: [],
-  });
-  const [retryCount, setRetryCount] = useState(0);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    listDashboardFolders(null)
-      .then((folders) => {
-        if (active) setFolderState({ status: "ready", folders });
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setFolderState({
-          status: "error",
-          folders: [],
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not load your folders.",
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [retryCount]);
-
-  const retryLoadingFolders = () => {
-    setFolderState((current) => ({
-      status: "loading",
-      folders: current.folders,
-    }));
-    setRetryCount((count) => count + 1);
-  };
-
-  const openCreateForm = () => setIsFormOpen(true);
-  const closeCreateForm = () => setIsFormOpen(false);
-
-  return (
-    <section
-      className="content-card folders-page-card"
-      aria-labelledby="folders-list-heading"
-      aria-busy={folderState.status === "loading"}
-    >
-      <div className="card-heading folders-page-heading">
-        <div>
-          <div className="card-title-row">
-            <span className="section-icon">
-              <Folder size={16} aria-hidden="true" />
-            </span>
-            <h2 id="folders-list-heading">Folders</h2>
-          </div>
-          <p>Keep related learning together.</p>
-        </div>
-        <button
-          className="new-note-button"
-          type="button"
-          onClick={isFormOpen ? closeCreateForm : openCreateForm}
-          aria-expanded={isFormOpen}
-          aria-controls="folder-create-form"
-        >
-          <Plus size={15} aria-hidden="true" />
-          {isFormOpen ? "Cancel" : "New Folder"}
-        </button>
-      </div>
-
-      {isFormOpen && (
-        <FolderCreateForm
-          parentId={null}
-          onCreated={() => {
-            closeCreateForm();
-            retryLoadingFolders();
-          }}
-          onCancel={closeCreateForm}
-        />
-      )}
-
-      {folderState.status === "loading" ? (
-        <div
-          className="folder-loading"
-          role="status"
-          aria-label="Loading folders"
-        >
-          <span />
-          <span />
-          <span />
-        </div>
-      ) : folderState.status === "error" ? (
-        <div className="inline-state error-state" role="alert">
-          <AlertCircle size={19} aria-hidden="true" />
-          <div>
-            <strong>Folders could not be loaded</strong>
-            <p>{folderState.message}</p>
-            <button
-              className="inline-action"
-              type="button"
-              onClick={retryLoadingFolders}
-            >
-              Try again
-            </button>
-          </div>
-        </div>
-      ) : folderState.folders.length === 0 ? (
-        <div className="folder-empty-state">
-          <span className="empty-state-icon">
-            <Folder size={20} aria-hidden="true" />
-          </span>
-          <h3>No folders yet.</h3>
-          <p>Create a folder to organize your learning.</p>
-          <button
-            className="new-note-button"
-            type="button"
-            onClick={openCreateForm}
-          >
-            <Plus size={15} aria-hidden="true" />
-            New Folder
-          </button>
-        </div>
-      ) : (
-        <div className="folder-list">
-          {folderState.folders.map((folder) => (
-            <a
-              className="folder-row"
-              href={`#/folders/${folder.id}`}
-              key={folder.id}
-              aria-label={`Open folder: ${folder.name}`}
-            >
-              <span className="folder-row-icon">
-                <Folder size={18} aria-hidden="true" />
-              </span>
-              <div className="folder-row-copy">
-                <div className="folder-row-heading">
-                  <h3>{folder.name}</h3>
-                  <time className="folder-row-date" dateTime={folder.created_at}>
-                    Created {formatFolderDate(folder.created_at)}
-                  </time>
-                </div>
-                {folder.description.trim() && <p>{folder.description}</p>}
-              </div>
-              <ArrowUpRight
-                className="folder-row-arrow"
-                size={16}
-                aria-hidden="true"
-              />
-            </a>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-type FolderDetailState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; folder: DashboardFolder };
-
-type FolderNotesState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; notes: DashboardNote[] };
-
-type FolderChildrenState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; folders: DashboardFolder[] };
-
-function FolderDetailPage({
-  folderId,
-  onOpenNote,
-}: {
-  folderId: number;
-  onOpenNote: (noteId: number) => void;
-}) {
-  const [folderState, setFolderState] = useState<FolderDetailState>({
-    status: "loading",
-  });
-  const [notesState, setNotesState] = useState<FolderNotesState>({
-    status: "loading",
-  });
-  const [childrenState, setChildrenState] = useState<FolderChildrenState>({
-    status: "loading",
-  });
-  const [folderRetryCount, setFolderRetryCount] = useState(0);
-  const [notesRetryCount, setNotesRetryCount] = useState(0);
-  const [childrenRetryCount, setChildrenRetryCount] = useState(0);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isRenameOpen, setIsRenameOpen] = useState(false);
-  const [renameName, setRenameName] = useState("");
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [isDeleteConfirmationOpen, setIsDeleteConfirmationOpen] =
-    useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    getDashboardFolder(folderId)
-      .then((folder) => {
-        if (active) setFolderState({ status: "ready", folder });
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setFolderState({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Folder not found or unavailable.",
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [folderId, folderRetryCount]);
-
-  useEffect(() => {
-    if (folderState.status !== "ready") return;
-    let active = true;
-    getDashboardFolderNotes(folderId)
-      .then((notes) => {
-        if (active) setNotesState({ status: "ready", notes });
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setNotesState({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not load notes in this folder.",
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [folderId, folderState.status, folderRetryCount, notesRetryCount]);
-
-  useEffect(() => {
-    if (folderState.status !== "ready") return;
-    let active = true;
-    listDashboardFolders(folderId)
-      .then((folders) => {
-        if (active) setChildrenState({ status: "ready", folders });
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setChildrenState({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not load subfolders.",
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [folderId, folderState.status, folderRetryCount, childrenRetryCount]);
-
-  const retryFolder = () => {
-    setFolderState({ status: "loading" });
-    setNotesState({ status: "loading" });
-    setChildrenState({ status: "loading" });
-    setFolderRetryCount((count) => count + 1);
-  };
-
-  const retryNotes = () => {
-    setNotesState({ status: "loading" });
-    setNotesRetryCount((count) => count + 1);
-  };
-
-  const retryChildren = () => {
-    setChildrenState({ status: "loading" });
-    setChildrenRetryCount((count) => count + 1);
-  };
-
-  const openRename = () => {
-    if (folderState.status !== "ready") return;
-    setRenameName(folderState.folder.name);
-    setRenameError(null);
-    setIsRenameOpen(true);
-  };
-
-  const handleRename = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (folderState.status !== "ready" || isRenaming) return;
-    setIsRenaming(true);
-    setRenameError(null);
-    try {
-      const renamedFolder = await renameDashboardFolder(
-        folderId,
-        renameName.trim(),
-      );
-      setFolderState({ status: "ready", folder: renamedFolder });
-      setIsRenameOpen(false);
-    } catch (error) {
-      setRenameError(
-        error instanceof Error
-          ? error.message
-          : "Could not rename this folder.",
-      );
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (isDeleting) return;
-    if (folderState.status !== "ready") return;
-    const parentId = folderState.folder.parent;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
-      await deleteDashboardFolder(folderId);
-      window.location.hash = parentId
-        ? `#/folders/${parentId}`
-        : "#/folders";
-    } catch (error) {
-      setDeleteError(
-        error instanceof Error
-          ? error.message
-          : "Could not delete this folder.",
-      );
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const folder =
-    folderState.status === "ready" ? folderState.folder : null;
-  const breadcrumbs = folder?.breadcrumbs ?? [];
-  const parentBreadcrumb =
-    breadcrumbs.length > 1
-      ? breadcrumbs[breadcrumbs.length - 2]
-      : null;
-  const backHref = folder?.parent
-    ? `#/folders/${folder.parent}`
-    : "#/folders";
-  const backLabel = parentBreadcrumb
-    ? `Back to ${parentBreadcrumb.name}`
-    : "Back to Folders";
-  const isFolderAndNotesEmpty =
-    childrenState.status === "ready" &&
-    childrenState.folders.length === 0 &&
-    notesState.status === "ready" &&
-    notesState.notes.length === 0;
-
-  return (
-    <div className="folder-detail-page">
-      <a className="workspace-back-button folder-back-link" href={backHref}>
-        <ArrowLeft size={17} aria-hidden="true" />
-        <span>{backLabel}</span>
-      </a>
-
-      {folderState.status === "loading" ? (
-        <section
-          className="content-card folder-detail-loading"
-          role="status"
-          aria-label="Loading folder"
-        >
-          <span />
-          <span />
-        </section>
-      ) : folderState.status === "error" ? (
-        <section className="content-card" role="alert">
-          <div className="inline-state error-state">
-            <AlertCircle size={19} aria-hidden="true" />
-            <div>
-              <strong>Folder not found or unavailable</strong>
-              <p>{folderState.message}</p>
-              <button
-                className="inline-action"
-                type="button"
-                onClick={retryFolder}
-              >
-                Try again
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <>
-          <nav className="folder-breadcrumbs" aria-label="Folder breadcrumbs">
-            <a href="#/folders">Folders</a>
-            {breadcrumbs.map((breadcrumb, index) => {
-              const isCurrent = index === breadcrumbs.length - 1;
-              return (
-                <span className="folder-breadcrumb-item" key={breadcrumb.id}>
-                  <span aria-hidden="true">/</span>
-                  {isCurrent ? (
-                    <span aria-current="page">{breadcrumb.name}</span>
-                  ) : (
-                    <a href={`#/folders/${breadcrumb.id}`}>
-                      {breadcrumb.name}
-                    </a>
-                  )}
-                </span>
-              );
-            })}
-          </nav>
-          <div className="folder-detail-header">
-            <header className="folder-detail-heading">
-              <h2>{folderState.folder.name}</h2>
-              {folderState.folder.description.trim() && (
-                <p>{folderState.folder.description}</p>
-              )}
-            </header>
-            {!isRenameOpen &&
-              !isDeleteConfirmationOpen &&
-              !isCreateOpen && (
-                <div className="folder-management-actions">
-                  <button
-                    className="new-note-button"
-                    type="button"
-                    onClick={() => setIsCreateOpen(true)}
-                  >
-                    <Plus size={15} aria-hidden="true" />
-                    New Folder
-                  </button>
-                  <button
-                    className="workspace-secondary-button"
-                    type="button"
-                    onClick={openRename}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    className="folder-delete-button"
-                    type="button"
-                    onClick={() => {
-                      setDeleteError(null);
-                      setIsDeleteConfirmationOpen(true);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-          </div>
-
-          {isCreateOpen && (
-            <FolderCreateForm
-              parentId={folderId}
-              onCreated={() => {
-                setIsCreateOpen(false);
-                retryChildren();
-              }}
-              onCancel={() => setIsCreateOpen(false)}
-            />
-          )}
-
-          {isRenameOpen && (
-            <form
-              className="folder-create-form folder-rename-form"
-              onSubmit={(event) => void handleRename(event)}
-            >
-              <label htmlFor="folder-rename-name">Folder name</label>
-              <input
-                id="folder-rename-name"
-                value={renameName}
-                onChange={(event) => {
-                  setRenameName(event.target.value);
-                  setRenameError(null);
-                }}
-                maxLength={255}
-                required
-                autoFocus
-              />
-              {renameError && (
-                <div className="inline-state error-state" role="alert">
-                  <AlertCircle size={18} aria-hidden="true" />
-                  <div>
-                    <strong>Folder could not be renamed</strong>
-                    <p>{renameError}</p>
-                  </div>
-                </div>
-              )}
-              <div className="folder-form-actions">
-                <button
-                  className="workspace-secondary-button"
-                  type="button"
-                  onClick={() => {
-                    setIsRenameOpen(false);
-                    setRenameError(null);
-                  }}
-                  disabled={isRenaming}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="workspace-save-button"
-                  type="submit"
-                  disabled={isRenaming || !renameName.trim()}
-                >
-                  {isRenaming ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {isDeleteConfirmationOpen && (
-            <section
-              className="folder-delete-confirmation"
-              aria-labelledby="folder-delete-title"
-            >
-              <h3 id="folder-delete-title">Delete this folder?</h3>
-              <p>
-                The folder will be removed, but the notes inside it will not be
-                deleted. They will become unassigned.
-              </p>
-              {deleteError && (
-                <div className="inline-state error-state" role="alert">
-                  <AlertCircle size={18} aria-hidden="true" />
-                  <div>
-                    <strong>Folder could not be deleted</strong>
-                    <p>{deleteError}</p>
-                  </div>
-                </div>
-              )}
-              <div className="folder-form-actions">
-                <button
-                  className="workspace-secondary-button"
-                  type="button"
-                  onClick={() => {
-                    setIsDeleteConfirmationOpen(false);
-                    setDeleteError(null);
-                  }}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="folder-delete-button"
-                  type="button"
-                  onClick={() => void handleDelete()}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? "Deleting…" : "Delete Folder"}
-                </button>
-              </div>
-            </section>
-          )}
-
-          <section className="content-card folder-subfolders-card">
-            <div className="card-heading">
-              <div className="card-title-row">
-                <span className="section-icon">
-                  <Folder size={16} aria-hidden="true" />
-                </span>
-                <h2>Subfolders</h2>
-              </div>
-            </div>
-            {childrenState.status === "loading" ? (
-              <div
-                className="folder-loading"
-                role="status"
-                aria-label="Loading subfolders"
-              >
-                <span />
-                <span />
-              </div>
-            ) : childrenState.status === "error" ? (
-              <div className="inline-state error-state" role="alert">
-                <AlertCircle size={19} aria-hidden="true" />
-                <div>
-                  <strong>Subfolders could not be loaded</strong>
-                  <p>{childrenState.message}</p>
-                  <button
-                    className="inline-action"
-                    type="button"
-                    onClick={retryChildren}
-                  >
-                    Try again
-                  </button>
-                </div>
-              </div>
-            ) : childrenState.folders.length === 0 ? (
-              <div className="folder-notes-empty" role="status">
-                <span className="empty-state-icon">
-                  <Folder size={20} aria-hidden="true" />
-                </span>
-                <h3>
-                  {isFolderAndNotesEmpty
-                    ? "No subfolders or notes yet."
-                    : "No subfolders yet."}
-                </h3>
-                {isFolderAndNotesEmpty && (
-                  <p>Create a subfolder to organize this folder.</p>
-                )}
-              </div>
-            ) : (
-              <div className="folder-list">
-                {childrenState.folders.map((child) => (
-                  <a
-                    className="folder-row"
-                    href={`#/folders/${child.id}`}
-                    key={child.id}
-                    aria-label={`Open folder: ${child.name}`}
-                  >
-                    <span className="folder-row-icon">
-                      <Folder size={18} aria-hidden="true" />
-                    </span>
-                    <div className="folder-row-copy">
-                      <div className="folder-row-heading">
-                        <h3>{child.name}</h3>
-                        <time className="folder-row-date" dateTime={child.created_at}>
-                          Created {formatFolderDate(child.created_at)}
-                        </time>
-                      </div>
-                      {child.description.trim() && <p>{child.description}</p>}
-                    </div>
-                    <ArrowUpRight
-                      className="folder-row-arrow"
-                      size={16}
-                      aria-hidden="true"
-                    />
-                  </a>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="content-card folder-notes-card">
-            <div className="card-heading">
-              <div className="card-title-row">
-                <span className="section-icon">
-                  <FileText size={16} aria-hidden="true" />
-                </span>
-                <h2>Notes</h2>
-              </div>
-            </div>
-            {notesState.status === "loading" ? (
-              <div
-                className="notes-loading"
-                role="status"
-                aria-label="Loading folder notes"
-              >
-                <span />
-                <span />
-                <span />
-              </div>
-            ) : notesState.status === "error" ? (
-              <div className="inline-state error-state" role="alert">
-                <AlertCircle size={19} aria-hidden="true" />
-                <div>
-                  <strong>Notes could not be loaded</strong>
-                  <p>{notesState.message}</p>
-                  <button
-                    className="inline-action"
-                    type="button"
-                    onClick={retryNotes}
-                  >
-                    Try again
-                  </button>
-                </div>
-              </div>
-            ) : notesState.notes.length === 0 ? (
-              <div className="folder-notes-empty" role="status">
-                <span className="empty-state-icon">
-                  <FileText size={20} aria-hidden="true" />
-                </span>
-                <h3>No notes in this folder yet.</h3>
-              </div>
-            ) : (
-              <NoteRows
-                notes={notesState.notes}
-                onSelectNote={onOpenNote}
-              />
-            )}
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
-type FolderSearchState =
-  | { query: string; status: "loading" }
-  | { query: string; status: "loaded"; results: DashboardFolderSearchResult[] }
-  | { query: string; status: "error"; message: string };
-
-function FolderSearchPage({
-  dashboardState,
-  onRetryNotes,
-  onOpenNote,
-}: {
-  dashboardState: DashboardState;
-  onRetryNotes: () => void;
-  onOpenNote: (noteId: number) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [retryCount, setRetryCount] = useState(0);
-  const [searchState, setSearchState] = useState<FolderSearchState>({
-    query: "",
-    status: "loading",
-  });
-  const normalizedQuery = query.trim();
-
-  useEffect(() => {
-    if (!normalizedQuery) return;
-
-    let active = true;
-    const timeoutId = window.setTimeout(() => {
-      setSearchState({ query: normalizedQuery, status: "loading" });
-      searchDashboardFolders(normalizedQuery)
-        .then((results) => {
-          if (active) {
-            setSearchState({
-              query: normalizedQuery,
-              status: "loaded",
-              results,
-            });
-          }
-        })
-        .catch((error: unknown) => {
-          if (active) {
-            setSearchState({
-              query: normalizedQuery,
-              status: "error",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Could not search folders.",
-            });
-          }
-        });
-    }, 300);
-
-    return () => {
-      active = false;
-      window.clearTimeout(timeoutId);
-    };
-  }, [normalizedQuery, retryCount]);
-
-  const currentSearchState =
-    normalizedQuery === ""
-      ? null
-      : searchState.query === normalizedQuery
-        ? searchState
-        : { query: normalizedQuery, status: "loading" as const };
-  const matchingNotes =
-    dashboardState.status === "ready"
-      ? dashboardState.data.notes.filter((note) =>
-          matchesDashboardNoteSearch(note, normalizedQuery),
-        )
-      : [];
-
-  return (
-    <section className="content-card folder-search-panel">
-      <label className="folder-search-input">
-        <span className="visually-hidden">Search folders and notes</span>
-        <Search size={17} aria-hidden="true" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search folders and notes..."
-          aria-label="Search folders and notes"
-        />
-      </label>
-
-      {currentSearchState === null ? (
-        <div className="folder-search-message" role="status">
-          <Folder size={20} aria-hidden="true" />
-          <div>
-            <strong>Search your learning space</strong>
-            <p>Enter a folder name or note title to search.</p>
-          </div>
-        </div>
-      ) : (
-        <>
-          {currentSearchState.status === "loading" ? (
-            <div className="folder-search-message" role="status">
-              <span
-                className="folder-search-loading-indicator"
-                aria-hidden="true"
-              />
-              <p>Searching folders...</p>
-            </div>
-          ) : currentSearchState.status === "error" ? (
-            <div className="folder-search-message is-error" role="alert">
-              <AlertCircle size={19} aria-hidden="true" />
-              <div>
-                <strong>Folders could not be searched</strong>
-                <p>{currentSearchState.message}</p>
-                <button
-                  className="inline-action"
-                  type="button"
-                  onClick={() => setRetryCount((count) => count + 1)}
-                >
-                  Try again
-                </button>
-              </div>
-            </div>
-          ) : currentSearchState.results.length > 0 ? (
-            <div className="folder-search-results">
-              <div className="folder-search-results-heading">
-                <h2>Folders</h2>
-                <span>{currentSearchState.results.length}</span>
-              </div>
-              <ul>
-                {currentSearchState.results.map((result) => (
-                  <li key={result.id}>
-                    <a
-                      className="folder-search-result"
-                      href={`#/folders/${result.id}`}
-                      aria-label={`Open folder: ${result.path
-                        .map((folder) => folder.name)
-                        .join(" / ")}`}
-                    >
-                      <Folder size={17} aria-hidden="true" />
-                      <span className="folder-search-path">
-                        {result.path.map((folder, index) => (
-                          <span
-                            className="folder-search-path-segment"
-                            key={folder.id}
-                          >
-                            {index > 0 && (
-                              <span
-                                className="folder-search-path-separator"
-                                aria-hidden="true"
-                              >
-                                /
-                              </span>
-                            )}
-                            {folder.id === result.id ? (
-                              <strong>{folder.name}</strong>
-                            ) : (
-                              <span>{folder.name}</span>
-                            )}
-                          </span>
-                        ))}
-                      </span>
-                      <ArrowUpRight size={15} aria-hidden="true" />
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {dashboardState.status === "loading" ? (
-            <div className="folder-search-message" role="status">
-              <span
-                className="folder-search-loading-indicator"
-                aria-hidden="true"
-              />
-              <p>Loading notes...</p>
-            </div>
-          ) : dashboardState.status === "error" ? (
-            <div className="folder-search-message is-error" role="alert">
-              <AlertCircle size={19} aria-hidden="true" />
-              <div>
-                <strong>Notes could not be searched</strong>
-                <p>{dashboardState.message}</p>
-                <button
-                  className="inline-action"
-                  type="button"
-                  onClick={onRetryNotes}
-                >
-                  Try again
-                </button>
-              </div>
-            </div>
-          ) : matchingNotes.length > 0 ? (
-            <div className="folder-search-results">
-              <div className="folder-search-results-heading">
-                <h2>Notes</h2>
-                <span>{matchingNotes.length}</span>
-              </div>
-              <NoteRows notes={matchingNotes} onSelectNote={onOpenNote} />
-            </div>
-          ) : null}
-
-          {currentSearchState.status === "loaded" &&
-            currentSearchState.results.length === 0 &&
-            dashboardState.status === "ready" &&
-            matchingNotes.length === 0 && (
-              <div className="folder-search-message" role="status">
-                <Search size={19} aria-hidden="true" />
-                <div>
-                  <strong>No matching folders or notes</strong>
-                  <p>Try another folder name or note title.</p>
-                </div>
-              </div>
-            )}
-        </>
-      )}
-    </section>
-  );
-}
-
 function WorkspacePlaceholder({ route }: { route: DashboardRoute }) {
   if (route === "dashboard" || route === "notes") return null;
   const content = routeContent[route];
@@ -5529,10 +3321,8 @@ function WorkspacePlaceholder({ route }: { route: DashboardRoute }) {
           <Clapperboard size={22} aria-hidden="true" />
         ) : route === "folders" ? (
           <Folder size={22} aria-hidden="true" />
-        ) : route === "search" ? (
-          <Search size={22} aria-hidden="true" />
         ) : (
-          <Brain size={22} aria-hidden="true" />
+          <Search size={22} aria-hidden="true" />
         )}
       </span>
       <p className="eyebrow">WORKSPACE</p>

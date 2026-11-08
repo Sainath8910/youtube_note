@@ -45,8 +45,6 @@ INSTALLED_APPS = [
     "folders",
     "videos",
     "notes",
-    "questions",
-    "knowledge",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -90,31 +88,43 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-KNOWLEDGE_KAFKA_BOOTSTRAP_SERVERS = os.environ.get(
-    "KNOWLEDGE_KAFKA_BOOTSTRAP_SERVERS",
-    "localhost:9092",
-)
-KNOWLEDGE_PREVIOUS_CONTEXT_KAFKA_TOPIC = os.environ.get(
-    "KNOWLEDGE_PREVIOUS_CONTEXT_KAFKA_TOPIC",
-    "previous-context-jobs",
-)
-KNOWLEDGE_PREVIOUS_CONTEXT_KAFKA_GROUP = os.environ.get(
-    "KNOWLEDGE_PREVIOUS_CONTEXT_KAFKA_GROUP",
-    "previous-context-worker",
-)
-
-
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+
+def required_database_setting(name):
+    value = os.environ.get(name, "")
+    if not value:
+        raise ImproperlyConfigured(f"{name} must be set in the environment.")
+    return value
+
+
+DB_NAME = required_database_setting("DB_NAME")
+DB_USER = required_database_setting("DB_USER")
+DB_PASSWORD = required_database_setting("DB_PASSWORD")
+DB_HOST = required_database_setting("DB_HOST")
+DB_PORT = required_database_setting("DB_PORT")
+
+if (
+    DJANGO_ENV != "test"
+    and DB_HOST.strip().lower() in {"localhost", "127.0.0.1", "::1"}
+):
+    raise ImproperlyConfigured(
+        "DB_HOST must target the Supabase PostgreSQL database, not localhost."
+    )
+
+DB_SSLMODE = os.environ.get("DB_SSLMODE", "require")
 
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("DB_NAME", "youtube_knowledge"),
-        "USER": os.environ.get("DB_USER", "youtube_user"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
-        "HOST": os.environ.get("DB_HOST", "localhost"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
+        "NAME": DB_NAME,
+        "USER": DB_USER,
+        "PASSWORD": DB_PASSWORD,
+        "HOST": DB_HOST,
+        "PORT": DB_PORT,
+        "OPTIONS": {
+            "sslmode": DB_SSLMODE,
+        },
     }
 }
 

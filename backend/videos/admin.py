@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Video, VideoAnalysis, ViewingSession
+from .models import Video, ViewingSession
 
 
 @admin.register(Video)
@@ -10,10 +10,9 @@ class VideoAdmin(admin.ModelAdmin):
         "youtube_id",
         "channel_name",
         "transcript_status",
-        "analysis_status",
         "created_at",
     )
-    list_filter = ("transcript_status", "analysis_status")
+    list_filter = ("transcript_status",)
     search_fields = ("title", "youtube_id", "channel_name", "channel_handle")
     ordering = ("-created_at",)
     readonly_fields = ("created_at", "updated_at", "transcript_fetched_at")
@@ -27,12 +26,3 @@ class ViewingSessionAdmin(admin.ModelAdmin):
     ordering = ("-last_watched_at",)
     readonly_fields = ("last_watched_at",)
     autocomplete_fields = ["user", "video"]
-
-
-@admin.register(VideoAnalysis)
-class VideoAnalysisAdmin(admin.ModelAdmin):
-    list_display = ("video", "model", "analysis_version", "created_at")
-    list_filter = ("analysis_version", "model")
-    search_fields = ("video__title", "video__youtube_id", "model")
-    ordering = ("-created_at",)
-    readonly_fields = ("created_at", "updated_at")

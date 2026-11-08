@@ -62,7 +62,7 @@ export async function captureCurrentVideoScreenshot(
 
   const timestampSeconds = Number(video.currentTime.toFixed(2));
   const wasPlaying = !video.paused && !video.ended;
-  const sidebar = window.document.getElementById("youtube-knowledge-root");
+  const sidebar = window.document.getElementById("youtube-notes-root");
   const previousVisibility = sidebar?.style.visibility;
 
   video.pause();
