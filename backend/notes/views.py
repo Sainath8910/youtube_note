@@ -17,6 +17,7 @@ from videos.services.youtube import (
 
 from .models import Note
 from .serializers import NoteSerializer
+from .trash import TrashRestoreConflict, list_trash, restore_trash, trash_note
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class NoteListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return Note.objects.filter(
             user=self.request.user,
+            deleted_at__isnull=True,
         ).select_related(
             "video",
             "folder",
@@ -42,6 +44,7 @@ class NoteDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Note.objects.filter(
             user=self.request.user,
+            deleted_at__isnull=True,
         ).select_related(
             "video",
             "folder",
@@ -50,6 +53,28 @@ class NoteDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         serializer.save()
 
+    def perform_destroy(self, instance):
+        trash_note(instance)
+
+
+class TrashListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"items": list_trash(request.user)})
+
+
+class TrashRestoreView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, entity, pk):
+        try:
+            item = restore_trash(request.user, entity, pk)
+        except TrashRestoreConflict as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        if item is None:
+            raise NotFound("This trash item is missing or its 30-day recovery period has expired.")
+        return Response({"status": "restored"})
 
 class VideoNoteCreateView(generics.CreateAPIView):
     serializer_class = NoteSerializer

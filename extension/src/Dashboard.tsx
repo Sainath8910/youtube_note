@@ -80,6 +80,7 @@ import {
 } from "./VideosPage";
 import { listDashboardVideos, type LibraryVideo } from "./videoApi";
 import { ProfilePage } from "./ProfilePage";
+import { TrashPage } from "./TrashPage";
 import type { AuthActionResult } from "./authFlow";
 
 type DashboardRoute =
@@ -88,7 +89,8 @@ type DashboardRoute =
   | "videos"
   | "folders"
   | "search"
-  | "profile";
+  | "profile"
+  | "trash";
 
 type NoteWorkspaceLocation =
   | { mode: "new"; youtubeId?: string }
@@ -113,6 +115,7 @@ const navigation = [
   { route: "notes", label: "Notes", icon: FileText },
   { route: "videos", label: "Videos", icon: Clapperboard },
   { route: "folders", label: "Folders", icon: Folder },
+  { route: "trash", label: "Trash", icon: Trash2 },
   { route: "search", label: "Search", icon: Search },
   { route: "profile", label: "Profile", icon: UserRound },
 ] as const satisfies ReadonlyArray<{
@@ -133,6 +136,11 @@ const routeContent: Record<
   folders: {
     title: "Folders",
     description: "Keep related learning together.",
+    message: "",
+  },
+  trash: {
+    title: "Trash",
+    description: "Restore notes and folders within 30 days.",
     message: "",
   },
   search: {
@@ -703,6 +711,8 @@ function Dashboard({
               onChangePassword={onChangePassword}
               onSendPasswordRecovery={onSendPasswordRecovery}
             />
+          ) : route === "trash" ? (
+            <TrashPage />
           ) : route === "dashboard" ||
             route === "videos" ? null : (
             <WorkspacePlaceholder route={route} />
@@ -2659,7 +2669,7 @@ function NoteWorkspace({
   };
 
   const handleDeleteNote = async () => {
-    if (!note || !window.confirm(`Delete "${note.title}"? This cannot be undone.`)) {
+    if (!note || !window.confirm(`Move "${note.title}" to Trash? You can restore it within 30 days.`)) {
       return;
     }
 
@@ -2876,7 +2886,7 @@ function NoteWorkspace({
                   disabled={isDeleting}
                 >
                   <Trash2 size={15} aria-hidden="true" />
-                  {isDeleting ? "Deleting…" : "Delete"}
+                  {isDeleting ? "Moving…" : "Move to Trash"}
                 </button>
               </div>
             )}

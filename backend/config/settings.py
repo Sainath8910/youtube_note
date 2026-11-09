@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "folders",
     "videos",
     "notes",
+    "sync_bridge.apps.SyncBridgeConfig",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -187,6 +188,9 @@ STORAGES = {
     },
 }
 
+WHITENOISE_MANIFEST_STRICT = False
+WHITENOISE_USE_FINDERS = True
+
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
@@ -224,4 +228,9 @@ ENABLE_DEV_HEADER_AUTH = (
     and DJANGO_ENV == "development"
     and os.environ.get("ENABLE_DEV_HEADER_AUTH", "false").strip().lower()
     in {"1", "true", "yes", "on"}
+)
+
+NOTES_SYNC_PEER_SECRET = os.environ.get("NOTES_SYNC_PEER_SECRET", "")
+NOTES_SYNC_PEER_INSTALLATION_ID = os.environ.get(
+    "NOTES_SYNC_PEER_INSTALLATION_ID", ""
 )

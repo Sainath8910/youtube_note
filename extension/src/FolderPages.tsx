@@ -389,12 +389,12 @@ export function FolderDetailPage({
 
             {confirmDelete && (
               <div className="folder-delete-confirmation" role="alert">
-                <h3>Delete this folder?</h3>
-                <p>Folders containing subfolders cannot be deleted. Notes are kept when a folder is removed.</p>
+                <h3>Move this folder to Trash?</h3>
+                <p>Its subfolders and contained notes will move to Trash together. You can restore the whole group within 30 days.</p>
                 <div className="folder-form-actions">
                   <button className="workspace-secondary-button" type="button" onClick={() => setConfirmDelete(false)} disabled={busy}>Cancel</button>
                   <button className="folder-delete-button" type="button" onClick={() => void remove()} disabled={busy}>
-                    {busy ? "Deleting…" : "Delete folder"}
+                    {busy ? "Moving…" : "Move to Trash"}
                   </button>
                 </div>
               </div>

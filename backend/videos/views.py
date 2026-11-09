@@ -28,13 +28,15 @@ _YOUTUBE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 def _videos_for_user(user):
     return (
         Video.objects.filter(
-            Q(notes__user=user) | Q(viewing_sessions__user=user)
+            Q(notes__user=user, notes__deleted_at__isnull=True)
+            | Q(viewing_sessions__user=user)
         )
         .annotate(
             notes_count=Count(
                 "notes",
                 filter=Q(
                     notes__user=user,
+                    notes__deleted_at__isnull=True,
                     notes__note_type=Note.NoteType.VIDEO,
                 ),
                 distinct=True,
@@ -42,7 +44,13 @@ def _videos_for_user(user):
             library_updated_at=Coalesce(
                 Greatest(
                     "updated_at",
-                    Max("notes__updated_at", filter=Q(notes__user=user)),
+                    Max(
+                        "notes__updated_at",
+                        filter=Q(
+                            notes__user=user,
+                            notes__deleted_at__isnull=True,
+                        ),
+                    ),
                 ),
                 "updated_at",
             ),
@@ -70,6 +78,7 @@ class VideoContextView(APIView):
         notes = Note.objects.filter(
             user=request.user,
             video=video,
+            deleted_at__isnull=True,
         ).select_related("folder")
 
         return Response(
@@ -168,6 +177,7 @@ class VideoDetailView(APIView):
             user=request.user,
             video=video,
             note_type=Note.NoteType.VIDEO,
+            deleted_at__isnull=True,
         ).select_related("folder", "video")
         return Response(
             {

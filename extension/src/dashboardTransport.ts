@@ -64,6 +64,25 @@ function requestForMessage(
         path: `/api/notes/${encodeURIComponent(id)}/`,
         method: "DELETE",
       };
+    case "LIST_TRASH":
+      return { path: "/api/notes/trash/", method: "GET" };
+    case "RESTORE_TRASH": {
+      const entity = message.entity;
+      const itemId = message.itemId;
+      if (
+        (entity !== "note" && entity !== "folder") ||
+        typeof itemId !== "number" ||
+        !Number.isSafeInteger(itemId) ||
+        itemId < 1
+      ) {
+        return null;
+      }
+      return {
+        path: `/api/notes/trash/${entity}/${encodeURIComponent(String(itemId))}/restore/`,
+        method: "POST",
+        body: {},
+      };
+    }
     case "GET_VIDEO_CONTEXT":
       return {
         path: `/api/videos/${encodeURIComponent(videoId)}/`,

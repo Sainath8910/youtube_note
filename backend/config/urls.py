@@ -26,6 +26,7 @@ urlpatterns = [
     path("api/folders/", include("folders.urls")),
     path("api/notes/", include("notes.urls")),
     path("api/videos/", include("videos.urls")),
+    path("api/sync/v1/", include("sync_bridge.urls")),
     path("", dashboard, name="dashboard"),
     re_path(
         r"^(?!admin(?:/|$)|api(?:/|$)|static(?:/|$)).*$",
