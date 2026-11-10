@@ -23,6 +23,7 @@ import {
   Search,
   Save,
   LogOut,
+  ListVideo,
   Trash2,
   UserRound,
   Video,
@@ -81,6 +82,7 @@ import {
 import { listDashboardVideos, type LibraryVideo } from "./videoApi";
 import { ProfilePage } from "./ProfilePage";
 import { TrashPage } from "./TrashPage";
+import { PlaylistsPage } from "./PlaylistsPage";
 import type { AuthActionResult } from "./authFlow";
 
 type DashboardRoute =
@@ -88,6 +90,7 @@ type DashboardRoute =
   | "notes"
   | "videos"
   | "folders"
+  | "playlists"
   | "search"
   | "profile"
   | "trash";
@@ -102,6 +105,8 @@ interface DashboardLocation {
   noteWorkspace: NoteWorkspaceLocation;
   folderId: number | null;
   videoId: string | null;
+  videoPlaylistId: number | null;
+  playlistId: number | null;
   videoTab: VideoTab;
 }
 
@@ -115,6 +120,7 @@ const navigation = [
   { route: "notes", label: "Notes", icon: FileText },
   { route: "videos", label: "Videos", icon: Clapperboard },
   { route: "folders", label: "Folders", icon: Folder },
+  { route: "playlists", label: "Playlists", icon: ListVideo },
   { route: "trash", label: "Trash", icon: Trash2 },
   { route: "search", label: "Search", icon: Search },
   { route: "profile", label: "Profile", icon: UserRound },
@@ -138,9 +144,14 @@ const routeContent: Record<
     description: "Keep related learning together.",
     message: "",
   },
+  playlists: {
+    title: "Playlists",
+    description: "Group videos together and browse their notes.",
+    message: "",
+  },
   trash: {
     title: "Trash",
-    description: "Restore notes and folders within 30 days.",
+    description: "Restore notes, folders, and playlists within 30 days.",
     message: "",
   },
   search: {
@@ -165,6 +176,13 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
       route: "videos",
       noteWorkspace: null,
       folderId: null,
+      videoPlaylistId: (() => {
+        const fromPlaylist = Number(searchParams.get("fromPlaylist"));
+        return Number.isSafeInteger(fromPlaylist) && fromPlaylist > 0
+          ? fromPlaylist
+          : null;
+      })(),
+      playlistId: null,
       videoId: videoMatch[1],
       videoTab:
         requestedTab === "transcript" || requestedTab === "notes"
@@ -184,6 +202,8 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
           : {}),
       },
       folderId: null,
+      videoPlaylistId: null,
+      playlistId: null,
       videoId: null,
       videoTab: "transcript",
     };
@@ -197,6 +217,8 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
         route: "notes",
         noteWorkspace: { mode: "existing", noteId },
         folderId: null,
+        videoPlaylistId: null,
+        playlistId: null,
         videoId: null,
         videoTab: "transcript",
       };
@@ -211,6 +233,8 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
         route: "folders",
         noteWorkspace: null,
         folderId,
+        videoPlaylistId: null,
+        playlistId: null,
         videoId: null,
         videoTab: "transcript",
       };
@@ -223,6 +247,13 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
       : "dashboard",
     noteWorkspace: null,
     folderId: null,
+    videoPlaylistId: null,
+    playlistId:
+      path === "playlists" &&
+      Number.isSafeInteger(Number(searchParams.get("playlistId"))) &&
+      Number(searchParams.get("playlistId")) > 0
+        ? Number(searchParams.get("playlistId"))
+        : null,
     videoId: null,
     videoTab: "transcript",
   };
@@ -643,7 +674,10 @@ function Dashboard({
               />
             </div>
           )}
-          {[...visitedVideoIds].map((youtubeId) => (
+          {Array.from(new Set([
+            ...visitedVideoIds,
+            ...(location.videoId ? [location.videoId] : []),
+          ])).map((youtubeId) => (
             <div
               key={youtubeId}
               hidden={route !== "videos" || location.videoId !== youtubeId}
@@ -654,10 +688,15 @@ function Dashboard({
                   location.videoId === youtubeId ? location.videoTab : "notes"
                 }
                 onBack={() => {
-                  window.location.hash = "#/videos";
+                  window.location.hash = location.videoPlaylistId
+                    ? `#/playlists?playlistId=${location.videoPlaylistId}`
+                    : "#/videos";
                 }}
                 onTabChange={(tab) => {
-                  window.location.hash = `#/videos/${youtubeId}?tab=${tab}`;
+                  const fromPlaylist = location.videoPlaylistId
+                    ? `&fromPlaylist=${location.videoPlaylistId}`
+                    : "";
+                  window.location.hash = `#/videos/${youtubeId}?tab=${tab}${fromPlaylist}`;
                 }}
                 onOpenNote={(noteId) => {
                   window.location.hash = `#/notes/${noteId}`;
@@ -704,6 +743,19 @@ function Dashboard({
             />
           ) : route === "folders" ? (
             <FoldersPage />
+          ) : route === "playlists" ? (
+            <PlaylistsPage
+              playlistId={location.playlistId}
+              onOpenPlaylist={(playlistId) => {
+                window.location.hash = `#/playlists?playlistId=${playlistId}`;
+              }}
+              onBackToPlaylists={() => {
+                window.location.hash = "#/playlists";
+              }}
+              onOpenVideo={(youtubeId, playlistId) => {
+                window.location.hash = `#/videos/${encodeURIComponent(youtubeId)}?fromPlaylist=${playlistId}`;
+              }}
+            />
           ) : route === "profile" ? (
             <ProfilePage
               authenticatedUser={authenticatedUser}
@@ -768,13 +820,6 @@ function Sidebar({ activeRoute, mobileOpen, onNavigate }: SidebarProps) {
           </a>
         ))}
       </nav>
-
-      <div className="sidebar-note">
-        <p>
-          <strong>Learn as you watch</strong>
-          <span>Capture ideas from any YouTube video.</span>
-        </p>
-      </div>
 
       <div className="sidebar-footer">
         <span className="connection-dot" aria-hidden="true" />

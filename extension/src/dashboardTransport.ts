@@ -70,7 +70,7 @@ function requestForMessage(
       const entity = message.entity;
       const itemId = message.itemId;
       if (
-        (entity !== "note" && entity !== "folder") ||
+        (entity !== "note" && entity !== "folder" && entity !== "playlist") ||
         typeof itemId !== "number" ||
         !Number.isSafeInteger(itemId) ||
         itemId < 1
@@ -95,6 +95,8 @@ function requestForMessage(
         ["page_size", message.pageSize],
         ["q", message.query],
         ["transcript", message.transcriptFilter],
+        ["playlist_filter", message.playlistFilter],
+        ["playlist_id", message.playlistId],
         ["sort", message.sort],
       ] as const;
       for (const [name, value] of params) {
@@ -117,6 +119,60 @@ function requestForMessage(
       return {
         path: `/api/videos/${encodeURIComponent(videoId)}/details/`,
         method: "GET",
+      };
+    case "LIST_PLAYLISTS": {
+      const query = new URLSearchParams();
+      const params = [
+        ["page", message.page],
+        ["page_size", message.pageSize],
+        ["q", message.query],
+        ["kind", message.kind],
+        ["sort", message.sort],
+      ] as const;
+      for (const [name, value] of params) {
+        if (
+          (typeof value === "string" && value !== "") ||
+          (typeof value === "number" &&
+            Number.isSafeInteger(value) &&
+            value > 0)
+        ) {
+          query.set(name, String(value));
+        }
+      }
+      const suffix = query.toString();
+      return {
+        path: `/api/playlists/${suffix ? `?${suffix}` : ""}`,
+        method: "GET",
+      };
+    }
+    case "CREATE_PLAYLIST":
+      return { path: "/api/playlists/", method: "POST", body: message.data };
+    case "GET_PLAYLIST":
+      return {
+        path: `/api/playlists/${encodeURIComponent(String(message.playlistId ?? ""))}/`,
+        method: "GET",
+      };
+    case "UPDATE_PLAYLIST":
+      return {
+        path: `/api/playlists/${encodeURIComponent(String(message.playlistId ?? ""))}/`,
+        method: "PATCH",
+        body: message.data,
+      };
+    case "DELETE_PLAYLIST":
+      return {
+        path: `/api/playlists/${encodeURIComponent(String(message.playlistId ?? ""))}/`,
+        method: "DELETE",
+      };
+    case "ADD_PLAYLIST_VIDEO":
+      return {
+        path: `/api/playlists/${encodeURIComponent(String(message.playlistId ?? ""))}/videos/`,
+        method: "POST",
+        body: message.data,
+      };
+    case "REMOVE_PLAYLIST_VIDEO":
+      return {
+        path: `/api/playlists/${encodeURIComponent(String(message.playlistId ?? ""))}/videos/${encodeURIComponent(String(message.youtubeId ?? ""))}/`,
+        method: "DELETE",
       };
     case "GET_VIDEO_TRANSCRIPT":
       return {

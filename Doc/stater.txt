@@ -1,0 +1,4 @@
+python manage.py runserver 8001
+npm run build:web
+npm run build
+npm run dev

@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "folders",
     "videos",
     "notes",
+    "playlists.apps.PlaylistsConfig",
     "sync_bridge.apps.SyncBridgeConfig",
     "django.contrib.admin",
     "django.contrib.auth",

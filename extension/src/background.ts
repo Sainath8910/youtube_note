@@ -89,6 +89,14 @@ function parseSenderUrl(value: string | undefined): URL | null {
   }
 }
 
+function isAuthenticationRequiredError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message ===
+      "A valid Supabase session is required to access Django APIs."
+  );
+}
+
 function captureVisibleTab(windowId: number): Promise<string> {
   return new Promise((resolve, reject) => {
     chrome.tabs.captureVisibleTab(
@@ -309,6 +317,46 @@ async function respondToProfileRequest(
   }
 }
 
+async function respondToPlaylistRequest(
+  path: string,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  sendResponse: (response: unknown) => void,
+  data?: unknown,
+): Promise<void> {
+  try {
+    const response = await fetchDjangoApiWithAuth(
+      djangoApiUrl(`/api/playlists/${path}`),
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+      },
+    );
+    const text = await response.text();
+    let responseData: unknown = null;
+    if (text) {
+      try {
+        responseData = JSON.parse(text);
+      } catch {
+        sendResponse({
+          success: false,
+          status: response.ok ? 502 : response.status,
+          data: { detail: "The Playlists service returned invalid JSON." },
+        });
+        return;
+      }
+    }
+    sendResponse({ success: response.ok, status: response.status, data: responseData });
+  } catch (error) {
+    console.error("[YouTube Knowledge] Playlist request failed:", error);
+    sendResponse({
+      success: false,
+      status: 0,
+      data: { detail: "Could not reach the Playlists service." },
+    });
+  }
+}
+
 async function respondToVideoRequest(
   path: string,
   sendResponse: (response: unknown) => void,
@@ -359,6 +407,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     )
   ) {
     return true;
+  }
+
+  if (isRecord(message) && message.type === "OPEN_DASHBOARD") {
+    const senderUrl = parseSenderUrl(sender.url);
+    if (
+      sender.id !== chrome.runtime.id ||
+      !sender.tab ||
+      !senderUrl ||
+      !["youtube.com", "www.youtube.com"].includes(senderUrl.hostname) ||
+      senderUrl.pathname !== "/watch"
+    ) {
+      sendResponse({ success: false });
+      return;
+    }
+
+    openDashboardTab(chrome);
+    sendResponse({ success: true });
+    return;
   }
 
   if (isRecord(message) && message.type === "PROFILE_API_REQUEST") {
@@ -507,6 +573,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ["page_size", message.pageSize],
       ["q", message.query],
       ["transcript", message.transcriptFilter],
+      ["playlist_filter", message.playlistFilter],
+      ["playlist_id", message.playlistId],
       ["sort", message.sort],
     ] as const;
     for (const [name, value] of videoListParameters) {
@@ -644,6 +712,187 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "IMPORT_YOUTUBE_PLAYLIST") {
+    const data = message.data;
+    const videos = isRecord(data) ? data.videos : null;
+    if (
+      !isRecord(data) ||
+      typeof data.youtube_playlist_id !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(data.youtube_playlist_id) ||
+      typeof data.title !== "string" ||
+      !Array.isArray(videos) ||
+      videos.length > 500
+    ) {
+      sendResponse({
+        success: false,
+        status: 400,
+        data: { detail: "Valid YouTube playlist details are required." },
+      });
+      return;
+    }
+    const playlistId = data.youtube_playlist_id;
+    const playlistPayload = {
+      kind: "YOUTUBE",
+      title: data.title.slice(0, 255) || "Untitled YouTube playlist",
+      channel_name:
+        typeof data.channel_name === "string" ? data.channel_name.slice(0, 255) : "",
+      youtube_playlist_id: playlistId,
+      thumbnail_url:
+        typeof data.thumbnail_url === "string" ? data.thumbnail_url.slice(0, 500) : "",
+      playlist_url: `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`,
+    };
+    void respondToPlaylistRequest("", "POST", (response) => {
+      if (!isRecord(response) || response.success !== true || !isRecord(response.data)) {
+        sendResponse(response);
+        return;
+      }
+      const createdPlaylistId = response.data.id;
+      if (
+        typeof createdPlaylistId !== "number" ||
+        !Number.isSafeInteger(createdPlaylistId) ||
+        createdPlaylistId < 1 ||
+        videos.length === 0
+      ) {
+        sendResponse(response);
+        return;
+      }
+      void respondToPlaylistRequest(
+        `${encodeURIComponent(String(createdPlaylistId))}/videos/`,
+        "POST",
+        sendResponse,
+        { videos },
+      );
+    }, playlistPayload);
+    return true;
+  }
+
+  if (
+    message.type === "LIST_PLAYLISTS" ||
+    message.type === "CREATE_PLAYLIST"
+  ) {
+    if (
+      message.type === "CREATE_PLAYLIST" &&
+      (typeof message.data !== "object" ||
+        message.data === null ||
+        Array.isArray(message.data))
+    ) {
+      sendResponse({
+        success: false,
+        status: 400,
+        data: { detail: "Playlist details are required." },
+      });
+      return;
+    }
+    const query = new URLSearchParams();
+    for (const [name, value] of [
+      ["page", message.page],
+      ["page_size", message.pageSize],
+      ["q", message.query],
+      ["kind", message.kind],
+      ["sort", message.sort],
+    ] as const) {
+      if (
+        (typeof value === "string" && value !== "") ||
+        (typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value > 0)
+      ) {
+        query.set(name, String(value));
+      }
+    }
+    const queryString = query.toString();
+    void respondToPlaylistRequest(
+      message.type === "LIST_PLAYLISTS" && queryString
+        ? `?${queryString}`
+        : "",
+      message.type === "CREATE_PLAYLIST" ? "POST" : "GET",
+      sendResponse,
+      message.type === "CREATE_PLAYLIST" ? message.data : undefined,
+    );
+    return true;
+  }
+
+  if (
+    message.type === "GET_PLAYLIST" ||
+    message.type === "UPDATE_PLAYLIST" ||
+    message.type === "DELETE_PLAYLIST" ||
+    message.type === "ADD_PLAYLIST_VIDEO" ||
+    message.type === "REMOVE_PLAYLIST_VIDEO"
+  ) {
+    const playlistId = message.playlistId;
+    if (
+      typeof playlistId !== "number" ||
+      !Number.isSafeInteger(playlistId) ||
+      playlistId < 1
+    ) {
+      sendResponse({
+        success: false,
+        status: 400,
+        data: { detail: "A valid playlist ID is required." },
+      });
+      return;
+    }
+    const idPath = `${encodeURIComponent(String(playlistId))}/`;
+    if (
+      message.type === "UPDATE_PLAYLIST" ||
+      message.type === "ADD_PLAYLIST_VIDEO"
+    ) {
+      if (
+        typeof message.data !== "object" ||
+        message.data === null ||
+        Array.isArray(message.data)
+      ) {
+        sendResponse({
+          success: false,
+          status: 400,
+          data: { detail: "Playlist details are required." },
+        });
+        return;
+      }
+    }
+    if (message.type === "REMOVE_PLAYLIST_VIDEO") {
+      if (
+        typeof message.youtubeId !== "string" ||
+        !/^[A-Za-z0-9_-]{11}$/.test(message.youtubeId)
+      ) {
+        sendResponse({
+          success: false,
+          status: 400,
+          data: { detail: "A valid YouTube video ID is required." },
+        });
+        return;
+      }
+      void respondToPlaylistRequest(
+        `${idPath}videos/${encodeURIComponent(message.youtubeId)}/`,
+        "DELETE",
+        sendResponse,
+      );
+      return true;
+    }
+    if (message.type === "ADD_PLAYLIST_VIDEO") {
+      void respondToPlaylistRequest(
+        `${idPath}videos/`,
+        "POST",
+        sendResponse,
+        message.data,
+      );
+      return true;
+    }
+    const method =
+      message.type === "UPDATE_PLAYLIST"
+        ? "PATCH"
+        : message.type === "DELETE_PLAYLIST"
+          ? "DELETE"
+          : "GET";
+    void respondToPlaylistRequest(
+      idPath,
+      method,
+      sendResponse,
+      message.type === "UPDATE_PLAYLIST" ? message.data : undefined,
+    );
+    return true;
+  }
+
 
   /*
    * --------------------------------------------------
@@ -718,9 +967,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(
-            `API request failed: ${response.status} ${response.statusText}`,
-          );
+          sendResponse({
+            success: false,
+            status: response.status,
+            error: `API request failed: ${response.status} ${response.statusText}`,
+          });
+          return;
         }
 
         const data = await response.json();
@@ -735,6 +987,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         sendResponse({
           success: false,
+          status: isAuthenticationRequiredError(error) ? 401 : 0,
+          authRequired: isAuthenticationRequiredError(error),
           error: error instanceof Error ? error.message : "Unknown error",
         });
       });
@@ -946,6 +1200,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         folder: note.folder ?? null,
 
         timestamp_seconds: note.timestamp_seconds ?? null,
+        ...(typeof note.youtube_playlist_id === "string"
+          ? {
+              youtube_playlist_id: note.youtube_playlist_id,
+              youtube_playlist_title:
+                typeof note.youtube_playlist_title === "string"
+                  ? note.youtube_playlist_title
+                  : "",
+              youtube_playlist_thumbnail_url:
+                typeof note.youtube_playlist_thumbnail_url === "string"
+                  ? note.youtube_playlist_thumbnail_url
+                  : "",
+            }
+          : {}),
       }),
     })
       .then(async (response) => {

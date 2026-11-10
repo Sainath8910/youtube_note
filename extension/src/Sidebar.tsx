@@ -59,7 +59,7 @@ interface SidebarProps {
   videoId: string;
   videoTitle: string;
   notes: VideoNote[];
-  contextStatus: "loading" | "loaded" | "error";
+  contextStatus: "loading" | "loaded" | "error" | "login_required";
   transcriptStatus: TranscriptStatus | null;
 }
 
@@ -113,6 +113,17 @@ const SIDEBAR_COLORS: ThemeColors = {
 const SIDEBAR_WIDTH = 390;
 const SIDEBAR_HEIGHT_MARGIN = 30;
 const MINIMIZED_SIZE = 46;
+
+function openDashboardForSignIn(): void {
+  chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD" }, (response) => {
+    const error = chrome.runtime.lastError;
+    if (error) {
+      console.error("[YouTube Notes] Could not open sign-in page:", error.message);
+    } else if (!response?.success) {
+      console.error("[YouTube Notes] The sign-in page request was rejected.");
+    }
+  });
+}
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -294,6 +305,105 @@ function savePosition(position: Position): void {
   );
 }
 
+interface YouTubePlaylistImport {
+  youtube_playlist_id: string;
+  title: string;
+  channel_name: string;
+  thumbnail_url: string;
+  videos: Array<{
+    youtube_id: string;
+    title: string;
+    channel_name: string;
+    thumbnail_url: string;
+    position: number;
+  }>;
+  current_position: number | null;
+}
+
+function readCurrentYouTubePlaylist(
+  currentVideoId: string,
+  currentVideoTitle: string,
+): YouTubePlaylistImport | null {
+  const pageUrl = new URL(window.location.href);
+  const playlistId = pageUrl.searchParams.get("list")?.trim() ?? "";
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(playlistId)) return null;
+
+  const videosById = new Map<string, YouTubePlaylistImport["videos"][number]>();
+  for (const anchor of window.document.querySelectorAll<HTMLAnchorElement>(
+    "ytd-playlist-panel-video-renderer a#thumbnail[href]",
+  )) {
+    const url = new URL(anchor.href, window.location.href);
+    const youtubeId = url.searchParams.get("v") ?? "";
+    const positionValue = url.searchParams.get("index");
+    const position = positionValue === null ? Number.NaN : Number(positionValue);
+    if (!/^[A-Za-z0-9_-]{11}$/.test(youtubeId) || !Number.isSafeInteger(position) || position < 0) {
+      continue;
+    }
+    const renderer = anchor.closest("ytd-playlist-panel-video-renderer");
+    const thumbnailUrl = renderer?.querySelector("img")?.getAttribute("src") ?? "";
+    videosById.set(youtubeId, {
+      youtube_id: youtubeId,
+      title:
+        renderer?.querySelector("#video-title")?.getAttribute("title")?.trim() ??
+        renderer?.querySelector("#video-title")?.textContent?.trim() ??
+        "",
+      channel_name:
+        renderer?.querySelector("#byline")?.textContent?.trim() ?? "",
+      thumbnail_url: thumbnailUrl.startsWith("data:") ? "" : thumbnailUrl,
+      position,
+    });
+  }
+
+  const currentPositionValue = pageUrl.searchParams.get("index");
+  const parsedCurrentPosition =
+    currentPositionValue === null ? Number.NaN : Number(currentPositionValue);
+  const currentPosition =
+    Number.isSafeInteger(parsedCurrentPosition) && parsedCurrentPosition >= 0
+      ? parsedCurrentPosition
+      : null;
+  if (!videosById.has(currentVideoId)) {
+    const finalPosition = currentPosition ??
+      Math.max(-1, ...Array.from(videosById.values(), (video) => video.position)) + 1;
+    videosById.set(currentVideoId, {
+      youtube_id: currentVideoId,
+      title: currentVideoTitle,
+      channel_name: "",
+      thumbnail_url: `https://i.ytimg.com/vi/${encodeURIComponent(currentVideoId)}/hqdefault.jpg`,
+      position: finalPosition,
+    });
+  }
+
+  const videos = Array.from(videosById.values())
+    .sort((left, right) => left.position - right.position)
+    .slice(0, 500);
+  const title = [
+    "ytd-playlist-panel-renderer #header #title",
+    "ytd-playlist-panel-renderer #header yt-formatted-string",
+    "ytd-playlist-header-renderer #title",
+    "ytd-playlist-header-renderer h1",
+  ]
+    .map((selector) => window.document.querySelector(selector))
+    .map((element) =>
+      element?.getAttribute("title")?.trim() || element?.textContent?.trim() || "",
+    )
+    .find(Boolean) ?? "";
+  const channelName =
+    window.document.querySelector(
+      "ytd-playlist-panel-renderer #owner-text",
+    )?.textContent?.trim() ?? "";
+
+  return {
+    youtube_playlist_id: playlistId,
+    title: title || "Untitled YouTube playlist",
+    channel_name: channelName,
+    thumbnail_url:
+      videos[0]?.thumbnail_url ||
+      `https://i.ytimg.com/vi/${encodeURIComponent(currentVideoId)}/hqdefault.jpg`,
+    videos,
+    current_position: currentPosition,
+  };
+}
+
 function sendCreateNote(data: {
   title: string;
   content: string;
@@ -301,6 +411,7 @@ function sendCreateNote(data: {
   youtube_id: string;
   timestamp_seconds: number | null;
 }): Promise<VideoNote> {
+  const playlist = readCurrentYouTubePlaylist(data.youtube_id, "");
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
@@ -314,6 +425,18 @@ function sendCreateNote(data: {
           youtube_id: data.youtube_id,
 
           timestamp_seconds: data.timestamp_seconds,
+          ...(playlist
+            ? {
+                youtube_playlist_id: playlist.youtube_playlist_id,
+                youtube_playlist_title: playlist.title,
+                youtube_playlist_channel_name: playlist.channel_name,
+                youtube_playlist_thumbnail_url: playlist.thumbnail_url,
+                youtube_playlist_videos: playlist.videos,
+                ...(playlist.current_position !== null
+                  ? { youtube_playlist_current_position: playlist.current_position }
+                  : {}),
+              }
+            : {}),
         },
       },
       (response) => {
@@ -2859,6 +2982,71 @@ export default function Sidebar({
   currentVideoIdRef.current = videoId;
 
   useEffect(() => {
+    if (contextStatus !== "loaded") return;
+    let active = true;
+    let timeout: number | null = null;
+    let lastSubmittedSignature = "";
+    const syncPlaylist = () => {
+      const playlist = readCurrentYouTubePlaylist(videoId, videoTitle);
+      if (!playlist) return;
+      const signature = JSON.stringify(playlist);
+      if (signature === lastSubmittedSignature) return;
+      lastSubmittedSignature = signature;
+      chrome.runtime.sendMessage(
+        { type: "IMPORT_YOUTUBE_PLAYLIST", data: playlist },
+        (response) => {
+          if (!active) return;
+          if (chrome.runtime.lastError || !response?.success) {
+            lastSubmittedSignature = "";
+            console.warn(
+              "[YouTube Knowledge] Could not import playlist videos.",
+              chrome.runtime.lastError?.message ?? response?.error,
+            );
+          }
+        },
+      );
+    };
+    const scheduleSync = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = window.setTimeout(syncPlaylist, 700);
+    };
+    const observer = new MutationObserver(() => {
+      if (!panel) {
+        observePlaylistPanel();
+        return;
+      }
+      scheduleSync();
+    });
+    let panel: Element | null = null;
+    const observePlaylistPanel = () => {
+      panel = window.document.querySelector("ytd-playlist-panel-renderer");
+      if (panel) {
+        observer.disconnect();
+        observer.observe(panel, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["href", "title", "src"],
+        });
+        scheduleSync();
+      }
+    };
+    syncPlaylist();
+    observePlaylistPanel();
+    if (!panel) {
+      observer.observe(window.document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    }
+    return () => {
+      active = false;
+      observer.disconnect();
+      if (timeout !== null) window.clearTimeout(timeout);
+    };
+  }, [contextStatus, videoId, videoTitle]);
+
+  useEffect(() => {
     let active = true;
     void getExtensionDashboardProfile()
       .then((profile) => {
@@ -3741,6 +3929,41 @@ export default function Sidebar({
                 }}
               >
                 Loading notes for this video...
+              </div>
+            ) : contextStatus === "login_required" ? (
+              <div
+                role="status"
+                style={{
+                  display: "grid",
+                  justifyItems: "center",
+                  gap: 10,
+                  padding: "50px 20px",
+                  textAlign: "center",
+                }}
+              >
+                <FileText size={30} color={colors.accent} aria-hidden="true" />
+                <strong style={{ color: colors.primaryText, fontSize: 14 }}>
+                  Sign in to your extension
+                </strong>
+                <span style={{ color: colors.muted, fontSize: 12 }}>
+                  Sign in, then reload this video to refresh your notes.
+                </span>
+                <button
+                  type="button"
+                  onClick={openDashboardForSignIn}
+                  style={{
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    background: colors.accent,
+                    color: colors.panel,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Sign in
+                </button>
               </div>
             ) : contextStatus === "error" ? (
               <div

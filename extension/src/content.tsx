@@ -18,7 +18,7 @@ interface VideoContext {
   notes: VideoNote[]
 }
 
-type VideoContextStatus = "loading" | "loaded" | "error"
+type VideoContextStatus = "loading" | "loaded" | "error" | "login_required"
 
 let sidebarRoot: Root | null = null
 let lastVideoId: string | null = null
@@ -161,7 +161,9 @@ function fetchVideoContext(
             notes: [],
           },
           videoId,
-          "error",
+          response?.status === 401 || response?.authRequired
+            ? "login_required"
+            : "error",
         )
 
         return

@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 from folders.models import Folder
 from notes.models import Note
+from playlists.models import Playlist
 
 from .authentication import BridgePeerAndUserAuthentication
 from .models import BootstrapSnapshot, ChangeEvent, IdentityMapping, RecordState
@@ -143,13 +144,15 @@ class PeerReconcileView(PeerView):
             action = request.data["action"]
         except (KeyError, ValueError, TypeError):
             return Response({"detail": "Invalid mapping request."}, status=400)
-        if entity not in {"note", "folder"} or action not in {"pair", "separate", "defer"}:
+        if entity not in {"note", "folder", "playlist"} or action not in {"pair", "separate", "defer"}:
             return Response({"detail": "Unsupported mapping action."}, status=400)
         if action == "pair":
             exists = (
                 Note.objects.filter(user=request.user, sync_uuid=local_uuid).exists()
                 if entity == "note"
                 else Folder.objects.filter(user=request.user, sync_uuid=local_uuid).exists()
+                if entity == "folder"
+                else Playlist.objects.filter(user=request.user, sync_uuid=local_uuid).exists()
             )
             if not exists:
                 return Response({"detail": "Record not found."}, status=404)
@@ -213,7 +216,7 @@ class PeerAcknowledgeView(PeerView):
             revision = int(request.data["revision"])
         except (KeyError, ValueError, TypeError):
             return Response({"detail": "Invalid acknowledgment."}, status=400)
-        if entity not in {"note", "folder"} or revision < 0:
+        if entity not in {"note", "folder", "playlist"} or revision < 0:
             return Response({"detail": "Invalid acknowledgment."}, status=400)
         state = RecordState.objects.filter(
             owner=request.user, entity=entity, record_uuid=record_uuid
