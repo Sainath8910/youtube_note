@@ -629,6 +629,10 @@ function TranscriptPanel({
         </button>
       </div>
       {copyError && <p className="video-inline-error" role="alert">{copyError}</p>}
+      <details className="video-transcript-full">
+        <summary>Full transcript</summary>
+        <p>{plainTranscript.replaceAll("\n", " ")}</p>
+      </details>
       <label className="video-search-field transcript-search-field">
         <span className="visually-hidden">Search transcript</span>
         <Search size={15} aria-hidden="true" />
@@ -655,19 +659,21 @@ function TranscriptPanel({
       ) : (
         <>
           <ol className="video-transcript-list">
-            {filteredSegments.slice(0, visibleCount).map((segment, index) => (
-              <li key={`${segment.start}-${index}`}>
-                <a
-                  className="video-transcript-timestamp"
-                  href={`https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}&t=${Math.max(0, Math.floor(segment.start))}s`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {formatTimestamp(segment.start)}
-                </a>
-                <p>{highlightedText(segment.text, query)}</p>
-              </li>
-            ))}
+            {filteredSegments.slice(0, visibleCount).map((segment, index) => {
+              return (
+                <li key={`${segment.start}-${index}`}>
+                  <a
+                    className="video-transcript-timestamp"
+                    href={`https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}&t=${Math.max(0, Math.floor(segment.start))}s`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {formatTimestamp(segment.start)}
+                  </a>
+                  <p>{highlightedText(segment.text, query)}</p>
+                </li>
+              );
+            })}
           </ol>
           {filteredSegments.length > visibleCount && (
             <button

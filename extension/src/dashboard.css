@@ -2746,6 +2746,16 @@
   cursor: wait;
 }
 
+.workspace-save-shortcut {
+  margin-left: 3px;
+  padding: 3px 5px;
+  color: rgba(6, 32, 42, 0.72);
+  border: 1px solid rgba(6, 32, 42, 0.2);
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
 .note-workspace-content {
   padding-top: 27px;
   color: #c8d4e1;

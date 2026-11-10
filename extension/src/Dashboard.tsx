@@ -2429,6 +2429,10 @@ function VideoTranscriptPanel({
           ? `Language: ${state.data.transcriptLanguage}`
           : `${state.data.transcript.length} transcript segments`}
       </p>
+      <details className="video-transcript-full">
+        <summary>Full transcript</summary>
+        <p>{state.data.transcript.map((segment) => segment.text).join(" ")}</p>
+      </details>
       <ol className="video-transcript-list">
         {state.data.transcript.map((segment, index) => (
           <li key={`${segment.start}-${index}`}>
@@ -2775,7 +2779,19 @@ function NoteWorkspace({
   }
 
   return (
-    <main className="note-workspace-page">
+    <main
+      className="note-workspace-page"
+      onKeyDown={(event) => {
+        if (
+          mode === "write" &&
+          (event.ctrlKey || event.metaKey) &&
+          event.key.toLowerCase() === "s"
+        ) {
+          event.preventDefault();
+          if (!isSaving) void saveNote();
+        }
+      }}
+    >
       <div className="note-workspace">
         <header className="note-workspace-topbar">
           <button
@@ -2875,6 +2891,9 @@ function NoteWorkspace({
               >
                 <Save size={16} aria-hidden="true" />
                 {isSaving ? "Saving…" : "Save note"}
+                <span className="workspace-save-shortcut" aria-hidden="true">
+                  Ctrl + S
+                </span>
               </button>
             )}
             {mode === "read" && note && (
