@@ -357,6 +357,45 @@ async function respondToPlaylistRequest(
   }
 }
 
+async function respondToTrashRequest(
+  path: string,
+  method: "GET" | "POST",
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  try {
+    const response = await fetchDjangoApiWithAuth(
+      djangoApiUrl(`/api/notes/${path}`),
+      { method, headers: { "Content-Type": "application/json" } },
+    );
+    const responseText = await response.text();
+    let responseData: unknown = null;
+    if (responseText) {
+      try {
+        responseData = JSON.parse(responseText);
+      } catch {
+        sendResponse({
+          success: false,
+          status: response.ok ? 502 : response.status,
+          data: { detail: "The Trash service returned invalid JSON." },
+        });
+        return;
+      }
+    }
+    sendResponse({
+      success: response.ok,
+      status: response.status,
+      data: responseData,
+    });
+  } catch (error) {
+    console.error("[YouTube Notes] Trash request failed:", error);
+    sendResponse({
+      success: false,
+      status: 0,
+      data: { detail: "Could not reach the Trash service." },
+    });
+  }
+}
+
 async function respondToVideoRequest(
   path: string,
   sendResponse: (response: unknown) => void,
@@ -889,6 +928,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       method,
       sendResponse,
       message.type === "UPDATE_PLAYLIST" ? message.data : undefined,
+    );
+    return true;
+  }
+
+  if (message.type === "LIST_TRASH") {
+    void respondToTrashRequest("trash/", "GET", sendResponse);
+    return true;
+  }
+
+  if (message.type === "RESTORE_TRASH") {
+    const entity = message.entity;
+    const itemId = message.itemId;
+    if (
+      (entity !== "note" && entity !== "folder" && entity !== "playlist") ||
+      typeof itemId !== "number" ||
+      !Number.isSafeInteger(itemId) ||
+      itemId < 1
+    ) {
+      sendResponse({
+        success: false,
+        status: 400,
+        data: { detail: "A valid Trash item is required." },
+      });
+      return;
+    }
+    void respondToTrashRequest(
+      `trash/${entity}/${encodeURIComponent(String(itemId))}/restore/`,
+      "POST",
+      sendResponse,
     );
     return true;
   }
