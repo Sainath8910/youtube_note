@@ -14,6 +14,7 @@ import {
   Download,
   FileText,
   FileCode2,
+  FileType2,
   Folder,
   House,
   Menu,
@@ -1776,7 +1777,10 @@ interface NoteWorkspaceProps {
   onDeleted: (noteId: number) => void;
 }
 
-function noteExportFileName(title: string, extension: "html" | "pdf"): string {
+function noteExportFileName(
+  title: string,
+  extension: "docx" | "html" | "pdf",
+): string {
   const safeTitle = title
     .trim()
     .replace(/[<>:"/\\|?*]/g, "-")
@@ -2020,6 +2024,20 @@ function downloadNoteAsHtml(note: DashboardNote): void {
   const link = document.createElement("a");
   link.href = blobUrl;
   link.download = noteExportFileName(title, "html");
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+async function downloadNoteAsWord(note: DashboardNote): Promise<void> {
+  const { createNoteWordFile } = await import("./noteWordExport");
+  const blob = await createNoteWordFile(
+    note,
+    note.video_detail?.youtube_id,
+  );
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = noteExportFileName(note.title, "docx");
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
@@ -2933,6 +2951,24 @@ function NoteWorkspace({
                       >
                         <FileText size={15} aria-hidden="true" />
                         Download PDF
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          void downloadNoteAsWord(note)
+                            .then(() => setIsExportMenuOpen(false))
+                            .catch((error: unknown) => {
+                              setSaveError(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not export this note as a Word document.",
+                              );
+                            });
+                        }}
+                      >
+                        <FileType2 size={15} aria-hidden="true" />
+                        Download Word
                       </button>
                       <button
                         type="button"
