@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   listDashboardTrash,
+  permanentlyDeleteDashboardTrash,
   restoreDashboardTrash,
   type DashboardTrashItem,
 } from "./folderApi";
@@ -36,6 +37,7 @@ function formatTrashDate(value: string): string {
 export function TrashPage() {
   const [state, setState] = useState<TrashState>({ status: "loading" });
   const [busyItem, setBusyItem] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<"restore" | "delete" | null>(null);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<TrashTab>("all");
   const [search, setSearch] = useState("");
@@ -79,6 +81,7 @@ export function TrashPage() {
   const restore = async (item: DashboardTrashItem) => {
     const key = `${item.entity}:${item.id}`;
     setBusyItem(key);
+    setBusyAction("restore");
     setError("");
     try {
       await restoreDashboardTrash(item.entity, item.id);
@@ -89,6 +92,37 @@ export function TrashPage() {
       setError(requestError instanceof Error ? requestError.message : "Could not restore this item.");
     } finally {
       setBusyItem(null);
+      setBusyAction(null);
+    }
+  };
+
+  const permanentlyDelete = async (item: DashboardTrashItem) => {
+    const title = item.title || (item.entity === "folder"
+      ? "Untitled folder"
+      : item.entity === "playlist"
+        ? "Untitled playlist"
+        : "Untitled note");
+    const subfolderWarning = item.entity === "folder"
+      ? " Its subfolders in this Trash item will also be permanently deleted."
+      : "";
+    if (!window.confirm(`Permanently delete "${title}"? This cannot be undone.${subfolderWarning}`)) {
+      return;
+    }
+
+    const key = `${item.entity}:${item.id}`;
+    setBusyItem(key);
+    setBusyAction("delete");
+    setError("");
+    try {
+      await permanentlyDeleteDashboardTrash(item.entity, item.id);
+      setState((current) => current.status === "ready"
+        ? { status: "ready", items: current.items.filter((row) => row.entity !== item.entity || row.id !== item.id) }
+        : current);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not permanently delete this item.");
+    } finally {
+      setBusyItem(null);
+      setBusyAction(null);
     }
   };
 
@@ -208,18 +242,25 @@ export function TrashPage() {
           {visibleItems.map((item) => {
             const key = `${item.entity}:${item.id}`;
             const Icon = item.entity === "playlist" ? ListVideo : item.entity === "folder" ? Folder : item.note_type === "VIDEO" ? Clapperboard : FileText;
+            const title = item.title || (item.entity === "folder" ? "Untitled folder" : item.entity === "playlist" ? "Untitled playlist" : "Untitled note");
             return (
               <li className="trash-page-item" key={key}>
                 <Icon size={18} aria-hidden="true" />
                 <div className="trash-page-copy">
-                  <strong>{item.title || (item.entity === "folder" ? "Untitled folder" : item.entity === "playlist" ? "Untitled playlist" : "Untitled note")}</strong>
+                  <strong>{title}</strong>
                   <span>{item.entity === "folder" ? "Folder · Subfolders are included; notes remain in Notes" : item.entity === "playlist" ? "Playlist · Videos and notes are kept" : item.note_type === "VIDEO" ? `Video note${item.video_title ? ` · ${item.video_title}` : ""}` : "Standalone note"}</span>
                   <small>Deleted {formatTrashDate(item.deleted_at)} · Expires {formatTrashDate(item.expires_at)}</small>
                 </div>
-                <button className="workspace-secondary-button" type="button" disabled={busyItem !== null} onClick={() => void restore(item)}>
-                  <RotateCcw size={14} aria-hidden="true" />
-                  {busyItem === key ? "Restoring…" : "Restore"}
-                </button>
+                <div className="trash-page-actions">
+                  <button className="workspace-secondary-button" type="button" disabled={busyItem !== null} onClick={() => void restore(item)}>
+                    <RotateCcw size={14} aria-hidden="true" />
+                    {busyItem === key && busyAction === "restore" ? "Restoring…" : "Restore"}
+                  </button>
+                  <button className="workspace-secondary-button trash-page-delete-button" type="button" disabled={busyItem !== null} aria-label={`Delete ${title} permanently`} onClick={() => void permanentlyDelete(item)}>
+                    <Trash2 size={14} aria-hidden="true" />
+                    {busyItem === key && busyAction === "delete" ? "Deleting…" : "Delete permanently"}
+                  </button>
+                </div>
               </li>
             );
           })}

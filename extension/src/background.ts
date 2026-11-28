@@ -458,7 +458,7 @@ async function respondToPlaylistRequest(
 
 async function respondToTrashRequest(
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   sendResponse: (response: unknown) => void,
 ): Promise<void> {
   try {
@@ -804,6 +804,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     }
     void respondToFolderRequest(path, "GET", sendResponse);
+    return true;
+  }
+
+  if (message.type === "PERMANENTLY_DELETE_TRASH") {
+    const entity = message.entity;
+    const itemId = message.itemId;
+    if (
+      (entity !== "note" && entity !== "folder" && entity !== "playlist") ||
+      typeof itemId !== "number" ||
+      !Number.isSafeInteger(itemId) ||
+      itemId < 1
+    ) {
+      sendResponse({
+        success: false,
+        status: 400,
+        data: { detail: "A valid Trash item is required." },
+      });
+      return;
+    }
+    void respondToTrashRequest(
+      `trash/${entity}/${encodeURIComponent(String(itemId))}/permanent/`,
+      "DELETE",
+      sendResponse,
+    );
     return true;
   }
 

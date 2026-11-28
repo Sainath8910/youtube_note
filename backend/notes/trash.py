@@ -127,6 +127,85 @@ def restore_trash(user, entity, pk, now=None):
     return item
 
 
+@transaction.atomic
+def permanently_delete_trash(user, entity, pk):
+    models_by_entity = {
+        "note": Note,
+        "folder": Folder,
+        "playlist": Playlist,
+    }
+    model = models_by_entity.get(entity)
+    if model is None:
+        raise ValueError("Unsupported trash entity.")
+
+    item = model.objects.filter(
+        user=user, pk=pk, deleted_at__isnull=False
+    ).first()
+    if item is None:
+        return None
+
+    if entity == "folder":
+        folders = list(Folder.objects.filter(
+            user=user,
+            trash_batch_id=item.trash_batch_id,
+            deleted_at__isnull=False,
+        )) if item.trash_batch_id else [item]
+        folder_ids = {folder.pk for folder in folders}
+        folder_by_id = {folder.pk: folder for folder in folders}
+        depths = {}
+
+        def depth(folder, visited=None):
+            if folder.pk in depths:
+                return depths[folder.pk]
+            visited = visited or set()
+            if folder.pk in visited or folder.parent_id not in folder_ids:
+                return 0
+            visited.add(folder.pk)
+            parent = folder_by_id.get(folder.parent_id)
+            value = 1 + depth(parent, visited) if parent else 0
+            depths[folder.pk] = value
+            return value
+
+        items = sorted(folders, key=depth, reverse=True)
+
+        for child in Folder.objects.filter(
+            user=user, parent_id__in=folder_ids
+        ).exclude(pk__in=folder_ids):
+            child.parent = None
+            child.save(update_fields=("parent",))
+    else:
+        items = [item]
+
+    from sync_bridge.services import portable_snapshot, write_change
+
+    for row in items:
+        if entity == "folder":
+            notes = Note.objects.filter(
+                user_id=row.user_id, folder_id=row.pk
+            ).select_related("user", "folder", "video")
+            for note in notes:
+                snapshot = portable_snapshot(note)
+                snapshot["folder_sync_uuid"] = None
+                write_change(
+                    note.user,
+                    "note",
+                    note.sync_uuid,
+                    snapshot,
+                    deleted=note.deleted_at is not None,
+                )
+
+        write_change(
+            row.user,
+            entity,
+            row.sync_uuid,
+            {"deleted_at": row.deleted_at.isoformat()},
+            deleted=True,
+        )
+        row.delete()
+
+    return item
+
+
 def list_trash(user, now=None):
     now = now or timezone.now()
     cutoff = now - TRASH_RETENTION

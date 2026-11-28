@@ -5163,11 +5163,27 @@ a.analysis-display-timestamp-item:hover {
   overflow-wrap: anywhere;
 }
 
+.trash-page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .trash-page-item button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 7px;
+}
+
+.trash-page-item .trash-page-delete-button {
+  color: #fca5a5;
+}
+
+.trash-page-item .trash-page-delete-button:hover {
+  color: #fee2e2;
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(127, 29, 29, 0.2);
 }
 
 .trash-page-empty {
@@ -5203,7 +5219,11 @@ a.analysis-display-timestamp-item:hover {
     flex-wrap: wrap;
   }
 
-  .trash-page-item button {
+  .trash-page-actions {
     margin-left: auto;
+  }
+
+  .trash-page-item .trash-page-actions button {
+    margin-left: 0;
   }
 }

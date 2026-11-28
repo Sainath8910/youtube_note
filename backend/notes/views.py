@@ -18,7 +18,13 @@ from playlists.services import add_video_to_youtube_playlist
 
 from .models import Note
 from .serializers import NoteSerializer
-from .trash import TrashRestoreConflict, list_trash, restore_trash, trash_note
+from .trash import (
+    TrashRestoreConflict,
+    list_trash,
+    permanently_delete_trash,
+    restore_trash,
+    trash_note,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +82,19 @@ class TrashRestoreView(APIView):
         if item is None:
             raise NotFound("This trash item is missing or its 30-day recovery period has expired.")
         return Response({"status": "restored"})
+
+
+class TrashPermanentDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, entity, pk):
+        if entity not in {"note", "folder", "playlist"}:
+            raise NotFound("This trash item is unavailable.")
+        item = permanently_delete_trash(request.user, entity, pk)
+        if item is None:
+            raise NotFound("This trash item is unavailable.")
+        return Response({"status": "deleted"})
+
 
 class VideoNoteCreateView(generics.CreateAPIView):
     serializer_class = NoteSerializer

@@ -83,6 +83,22 @@ function requestForMessage(
         body: {},
       };
     }
+    case "PERMANENTLY_DELETE_TRASH": {
+      const entity = message.entity;
+      const itemId = message.itemId;
+      if (
+        (entity !== "note" && entity !== "folder" && entity !== "playlist") ||
+        typeof itemId !== "number" ||
+        !Number.isSafeInteger(itemId) ||
+        itemId < 1
+      ) {
+        return null;
+      }
+      return {
+        path: `/api/notes/trash/${entity}/${encodeURIComponent(String(itemId))}/permanent/`,
+        method: "DELETE",
+      };
+    }
     case "GET_VIDEO_CONTEXT":
       return {
         path: `/api/videos/${encodeURIComponent(videoId)}/`,

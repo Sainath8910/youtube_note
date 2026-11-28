@@ -4,6 +4,7 @@ from .views import (
     NoteDetailView,
     NoteListCreateView,
     TrashListView,
+    TrashPermanentDeleteView,
     TrashRestoreView,
     VideoNoteCreateView,
 )
@@ -25,6 +26,11 @@ urlpatterns = [
         "trash/<str:entity>/<int:pk>/restore/",
         TrashRestoreView.as_view(),
         name="trash-restore",
+    ),
+    path(
+        "trash/<str:entity>/<int:pk>/permanent/",
+        TrashPermanentDeleteView.as_view(),
+        name="trash-permanent-delete",
     ),
     path(
         "<int:pk>/",

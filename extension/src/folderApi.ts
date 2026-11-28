@@ -267,3 +267,17 @@ export async function restoreDashboardTrash(
     throw new Error("The Trash API returned an invalid restore response.");
   }
 }
+
+export async function permanentlyDeleteDashboardTrash(
+  entity: DashboardTrashItem["entity"],
+  itemId: number,
+): Promise<void> {
+  const result = await sendFolderCommand({
+    type: "PERMANENTLY_DELETE_TRASH",
+    entity,
+    itemId,
+  });
+  if (!isObject(result) || result.status !== "deleted") {
+    throw new Error("The Trash API returned an invalid delete response.");
+  }
+}
