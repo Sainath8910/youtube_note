@@ -16,6 +16,7 @@ import {
   FileCode2,
   FileType2,
   Folder,
+  Globe,
   House,
   Menu,
   Play,
@@ -70,8 +71,8 @@ import { getDashboardProfile } from "./profileApi";
 import {
   FolderDetailPage,
   FoldersPage,
-  FolderSearchPage,
 } from "./FolderPages";
+import { SourcesPage } from "./SourcesPage";
 import type { DashboardFolder } from "./folderApi";
 import { FolderOrganizerDialog } from "./FolderOrganizerDialog";
 import "./dashboard.css";
@@ -92,13 +93,18 @@ type DashboardRoute =
   | "notes"
   | "videos"
   | "folders"
+  | "sources"
   | "playlists"
-  | "search"
   | "profile"
   | "trash";
 
 type NoteWorkspaceLocation =
-  | { mode: "new"; youtubeId?: string }
+  | {
+      mode: "new";
+      youtubeId?: string;
+      sourceUrl?: string;
+      sourceTitle?: string;
+    }
   | { mode: "existing"; noteId: number }
   | null;
 
@@ -122,9 +128,9 @@ const navigation = [
   { route: "notes", label: "Notes", icon: FileText },
   { route: "videos", label: "Videos", icon: Clapperboard },
   { route: "folders", label: "Folders", icon: Folder },
+  { route: "sources", label: "Sources", icon: Globe },
   { route: "playlists", label: "Playlists", icon: ListVideo },
   { route: "trash", label: "Trash", icon: Trash2 },
-  { route: "search", label: "Search", icon: Search },
   { route: "profile", label: "Profile", icon: UserRound },
 ] as const satisfies ReadonlyArray<{
   route: DashboardRoute;
@@ -146,6 +152,11 @@ const routeContent: Record<
     description: "Keep related learning together.",
     message: "",
   },
+  sources: {
+    title: "Sources",
+    description: "Browse web pages linked to your notes.",
+    message: "",
+  },
   playlists: {
     title: "Playlists",
     description: "Group videos together and browse their notes.",
@@ -154,11 +165,6 @@ const routeContent: Record<
   trash: {
     title: "Trash",
     description: "Restore notes, folders, and playlists within 30 days.",
-    message: "",
-  },
-  search: {
-    title: "Search",
-    description: "Find folders and notes by folder name or note title.",
     message: "",
   },
   profile: {
@@ -195,12 +201,38 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
 
   if (path === "notes/new") {
     const youtubeId = searchParams.get("videoId") ?? undefined;
+    const sourceUrlValue = searchParams.get("sourceUrl");
+    let sourceUrl: string | undefined;
+    if (sourceUrlValue) {
+      try {
+        const parsedSourceUrl = new URL(sourceUrlValue);
+        if (
+          (parsedSourceUrl.protocol === "http:" ||
+            parsedSourceUrl.protocol === "https:") &&
+          parsedSourceUrl.hostname &&
+          !parsedSourceUrl.username &&
+          !parsedSourceUrl.password &&
+          parsedSourceUrl.hostname !== "youtube.com" &&
+          parsedSourceUrl.hostname !== "www.youtube.com"
+        ) {
+          sourceUrl = parsedSourceUrl.toString();
+        }
+      } catch {
+        sourceUrl = undefined;
+      }
+    }
     return {
       route: "notes",
       noteWorkspace: {
         mode: "new",
         ...(youtubeId && /^[A-Za-z0-9_-]{11}$/.test(youtubeId)
           ? { youtubeId }
+          : {}),
+        ...(sourceUrl
+          ? {
+              sourceUrl,
+              sourceTitle: searchParams.get("sourceTitle")?.slice(0, 500) ?? "",
+            }
           : {}),
       },
       folderId: null,
@@ -244,7 +276,9 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
   }
 
   return {
-    route: navigation.some((item) => item.route === path)
+    route: path === "search"
+      ? "folders"
+      : navigation.some((item) => item.route === path)
       ? (path as DashboardRoute)
       : "dashboard",
     noteWorkspace: null,
@@ -264,6 +298,7 @@ function locationFromHash(hash = window.location.hash): DashboardLocation {
 function isKnownDashboardHash(hash: string): boolean {
   const path = hash.replace(/^#\/?/, "").split("?")[0];
   return (
+    path === "search" ||
     navigation.some((item) => item.route === path) ||
     /^notes\/(?:new|\d+)$/.test(path) ||
     /^folders\/\d+$/.test(path) ||
@@ -551,7 +586,7 @@ function Dashboard({
       <NoteWorkspace
         key={
           workspaceLocation.mode === "new"
-            ? "new-note"
+            ? `new-note-${workspaceLocation.youtubeId ?? ""}-${workspaceLocation.sourceUrl ?? ""}`
             : `note-${workspaceLocation.noteId}`
         }
         location={workspaceLocation}
@@ -723,8 +758,16 @@ function Dashboard({
                 window.location.hash = `#/notes/${noteId}`;
               }}
             />
-          ) : route === "search" ? (
-            <FolderSearchPage
+          ) : route === "folders" && location.folderId !== null ? (
+            <FolderDetailPage
+              key={location.folderId}
+              folderId={location.folderId}
+              onOpenNote={(noteId) => {
+                window.location.hash = `#/notes/${noteId}`;
+              }}
+            />
+          ) : route === "folders" ? (
+            <FoldersPage
               notesState={
                 dashboardState.status === "ready"
                   ? { status: "ready", data: dashboardState.data.notes }
@@ -735,16 +778,24 @@ function Dashboard({
                 window.location.hash = `#/notes/${noteId}`;
               }}
             />
-          ) : route === "folders" && location.folderId !== null ? (
-            <FolderDetailPage
-              key={location.folderId}
-              folderId={location.folderId}
+          ) : route === "sources" ? (
+            <SourcesPage
+              notes={
+                dashboardState.status === "ready"
+                  ? dashboardState.data.notes
+                  : []
+              }
+              loading={dashboardState.status === "loading"}
+              error={
+                dashboardState.status === "error"
+                  ? dashboardState.message
+                  : null
+              }
+              onRetry={refreshDashboard}
               onOpenNote={(noteId) => {
                 window.location.hash = `#/notes/${noteId}`;
               }}
             />
-          ) : route === "folders" ? (
-            <FoldersPage />
           ) : route === "playlists" ? (
             <PlaylistsPage
               playlistId={location.playlistId}
@@ -1409,7 +1460,7 @@ function NotesPage({
   const allNotes =
     dashboardState.status === "ready" ? dashboardState.data.notes : [];
   const matchingNotes = allNotes
-    .filter((note) => noteType === "ALL" || note.note_type === noteType)
+    .filter((note) => matchesNoteType(note, noteType))
     .filter((note) => matchesNoteSearch(note, searchQuery))
     .sort((left, right) => compareNotes(left, right, sortOrder));
   const totalPages = Math.max(
@@ -1505,6 +1556,7 @@ function NotesPage({
                 <option value="ALL">All Notes</option>
                 <option value="VIDEO">Video Notes</option>
                 <option value="STANDALONE">Standalone Notes</option>
+                <option value="URL">URL Notes</option>
               </select>
             </label>
             <label className="notes-control">
@@ -1613,7 +1665,7 @@ type NoteSortOrder =
   | "created-desc"
   | "updated-asc"
   | "created-asc";
-type NoteTypeFilter = "ALL" | "VIDEO" | "STANDALONE";
+type NoteTypeFilter = "ALL" | "VIDEO" | "STANDALONE" | "URL";
 const NOTES_PAGE_SIZE = 10;
 
 function isNoteSortOrder(value: string): value is NoteSortOrder {
@@ -1626,7 +1678,23 @@ function isNoteSortOrder(value: string): value is NoteSortOrder {
 }
 
 function isNoteTypeFilter(value: string): value is NoteTypeFilter {
-  return value === "ALL" || value === "VIDEO" || value === "STANDALONE";
+  return (
+    value === "ALL" ||
+    value === "VIDEO" ||
+    value === "STANDALONE" ||
+    value === "URL"
+  );
+}
+
+function isUrlNote(note: VideoNote): boolean {
+  return note.note_type === "STANDALONE" && Boolean(note.source_url?.trim());
+}
+
+function matchesNoteType(note: VideoNote, type: NoteTypeFilter): boolean {
+  if (type === "ALL") return true;
+  if (type === "VIDEO") return note.note_type === "VIDEO";
+  if (type === "URL") return isUrlNote(note);
+  return note.note_type === "STANDALONE";
 }
 
 function matchesNoteSearch(note: VideoNote, query: string): boolean {
@@ -1687,6 +1755,7 @@ function supportedDocumentBlocks(note: VideoNote): NoteBlock[] {
         block.type === "heading" ||
         block.type === "equation" ||
         block.type === "timestamp" ||
+        block.type === "page_position" ||
         block.type === "image" ||
         block.type === "url" ||
         block.type === "code" ||
@@ -1702,6 +1771,10 @@ function supportedDocumentBlocks(note: VideoNote): NoteBlock[] {
 function structuredDocumentText(note: VideoNote): string {
   return supportedDocumentBlocks(note)
     .map((block) => {
+      if (block.type === "page_position") {
+        return block.metadata?.caption || block.content;
+      }
+
       if (block.type === "image") {
         return typeof block.metadata?.alt === "string"
           ? block.metadata.alt
@@ -2525,13 +2598,19 @@ function NoteWorkspace({
   onDeleted,
 }: NoteWorkspaceProps) {
   const isNew = location.mode === "new";
+  const sourceUrl =
+    location.mode === "new" ? location.sourceUrl : undefined;
+  const sourceTitle =
+    location.mode === "new" ? location.sourceTitle : undefined;
   const hasVideo =
     note?.note_type === "VIDEO" && typeof note.video === "number";
   const videoMetadata = hasVideo ? note?.video_detail : null;
   const [mode, setMode] = useState<NoteWorkspaceMode>(
     isNew ? "write" : "read",
   );
-  const [title, setTitle] = useState(() => note?.title ?? "");
+  const [title, setTitle] = useState(
+    () => note?.title ?? sourceTitle ?? "",
+  );
   const [savedDocument, setSavedDocument] = useState(() =>
     note ? normalizeDocument(note) : createEmptyDocument(),
   );
@@ -2657,6 +2736,8 @@ function NoteWorkspace({
             })
           : await createStandaloneDashboardNote({
               title: normalizedTitle,
+              sourceUrl: location.sourceUrl,
+              sourceTitle: location.sourceTitle,
               content,
               document: noteDocument,
               folder: newNoteFolder?.id ?? null,
@@ -2763,8 +2844,12 @@ function NoteWorkspace({
     isNew
       ? location.youtubeId
         ? "New video note"
-        : "New standalone note"
+        : sourceUrl
+          ? "New web page note"
+          : "New standalone note"
       : note?.title || "Note workspace";
+  const webSourceUrl = note?.source_url || sourceUrl;
+  const webSourceTitle = note?.source_title || sourceTitle;
   const updatedDate = note ? formatNoteDate(note.updated_at) : null;
   const createdDate = note ? formatNoteDate(note.created_at) : null;
   const videoUrl = getYoutubeWatchUrl(videoMetadata?.youtube_id);
@@ -2889,7 +2974,11 @@ function NoteWorkspace({
               {mode === "read" && note && (
                 <div className="note-detail-metadata">
                   <span>
-                    {note.note_type === "VIDEO" ? "Video note" : "Standalone note"}
+                    {note.note_type === "VIDEO"
+                      ? "Video note"
+                      : note.source_url?.trim()
+                        ? "URL note"
+                        : "Standalone note"}
                   </span>
                   {hasVideo && <span>Associated video</span>}
                   {hasVideo &&
@@ -3113,6 +3202,17 @@ function NoteWorkspace({
             </section>
           )}
 
+          {webSourceUrl && (
+            <section className="workspace-page-source" aria-label="Web page source">
+              <p className="eyebrow">WEB PAGE SOURCE</p>
+              <a href={webSourceUrl} target="_blank" rel="noreferrer">
+                <Globe size={14} aria-hidden="true" />
+                <span>{webSourceTitle || webSourceUrl}</span>
+                <ArrowUpRight size={13} aria-hidden="true" />
+              </a>
+            </section>
+          )}
+
           {saveError && (
             <div className="workspace-save-error" role="alert">
               <AlertCircle size={17} aria-hidden="true" />
@@ -3319,13 +3419,16 @@ function NoteRows({
   return (
     <div className={`notes-list${compact ? " is-compact" : ""}`}>
       {notes.map((note) => {
+        const urlNote = isUrlNote(note);
         const rowContent = (
           <>
             <span
-              className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : ""}`}
+              className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : urlNote ? " is-url" : ""}`}
               aria-hidden="true"
             >
-              {note.note_type === "VIDEO" ? (
+              {urlNote ? (
+                <Globe size={16} />
+              ) : note.note_type === "VIDEO" ? (
                 <Video size={16} />
               ) : (
                 <FileText size={16} />

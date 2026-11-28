@@ -25,6 +25,14 @@ class Note(models.Model):
     title = models.CharField(
         max_length=500,
     )
+    source_url = models.URLField(
+        max_length=2048,
+        blank=True,
+    )
+    source_title = models.CharField(
+        max_length=500,
+        blank=True,
+    )
 
     # Structured rich-note document.
     #

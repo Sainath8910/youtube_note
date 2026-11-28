@@ -4,6 +4,7 @@ import {
 } from "./backgroundAuth";
 import { djangoApiUrl, fetchDjangoApi } from "./djangoApiRequest";
 import { openDashboardTab } from "./openDashboardTab";
+import { normalizePageSourceUrl } from "./pageSource";
 import { isTrustedProfileRequestSender } from "./profileTrust";
 
 const backgroundAuth = getBackgroundAuth();
@@ -19,13 +20,45 @@ void backgroundAuth.initialize().then((result) => {
   }
 });
 
-chrome.action.onClicked.addListener(() => openDashboardTab(chrome));
+function togglePageSidebar(tabId: number): void {
+  chrome.tabs.sendMessage(tabId, { type: "TOGGLE_PAGE_SIDEBAR" }, () => {
+    if (!chrome.runtime.lastError) return;
+    void chrome.scripting
+      .executeScript({
+        target: { tabId },
+        files: ["content.js"],
+      })
+      .catch((error: unknown) => {
+        console.error("[YouTube Notes] Could not open the page sidebar:", error);
+      });
+  });
+}
 
-interface ScreenshotCaptureRequest {
-  videoId: string;
-  timestampSeconds: number;
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab.url || !tab.id) {
+    openDashboardTab(chrome);
+    return;
+  }
+  if (!normalizePageSourceUrl(tab.url)) {
+    openDashboardTab(chrome);
+    return;
+  }
+
+  togglePageSidebar(tab.id);
+});
+
+interface ScreenshotGeometry {
   bounds: { x: number; y: number; width: number; height: number };
   viewport: { width: number; height: number };
+}
+
+interface ScreenshotCaptureRequest extends ScreenshotGeometry {
+  videoId: string;
+  timestampSeconds: number;
+}
+
+interface PageSectionScreenshotRequest extends ScreenshotGeometry {
+  sourceUrl: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,6 +78,36 @@ function isScreenshotCaptureRequest(
     value.videoId.length > 0 &&
     typeof value.timestampSeconds === "number" &&
     Number.isFinite(value.timestampSeconds) &&
+    typeof bounds.x === "number" &&
+    Number.isFinite(bounds.x) &&
+    typeof bounds.y === "number" &&
+    Number.isFinite(bounds.y) &&
+    typeof bounds.width === "number" &&
+    Number.isFinite(bounds.width) &&
+    bounds.width > 0 &&
+    typeof bounds.height === "number" &&
+    Number.isFinite(bounds.height) &&
+    bounds.height > 0 &&
+    typeof viewport.width === "number" &&
+    Number.isFinite(viewport.width) &&
+    viewport.width > 0 &&
+    typeof viewport.height === "number" &&
+    Number.isFinite(viewport.height) &&
+    viewport.height > 0
+  );
+}
+
+function isPageSectionScreenshotRequest(
+  value: unknown,
+): value is PageSectionScreenshotRequest {
+  if (!isRecord(value) || !isRecord(value.bounds) || !isRecord(value.viewport)) {
+    return false;
+  }
+  const bounds = value.bounds;
+  const viewport = value.viewport;
+  return (
+    typeof value.sourceUrl === "string" &&
+    normalizePageSourceUrl(value.sourceUrl) === value.sourceUrl &&
     typeof bounds.x === "number" &&
     Number.isFinite(bounds.x) &&
     typeof bounds.y === "number" &&
@@ -107,7 +170,7 @@ function captureVisibleTab(windowId: number): Promise<string> {
         if (error) {
           reject(
             new Error(
-              "Chrome denied tab capture. Click the extension toolbar icon on this YouTube tab, return to the video, and retry.",
+              "Chrome denied tab capture. Reopen the extension sidebar on this page and retry.",
             ),
           );
           return;
@@ -124,7 +187,7 @@ function captureVisibleTab(windowId: number): Promise<string> {
 
 async function cropPlayerScreenshot(
   capturedImage: string,
-  request: ScreenshotCaptureRequest,
+  request: ScreenshotGeometry,
 ): Promise<string> {
   const imageBlob = await (await fetch(capturedImage)).blob();
   const bitmap = await createImageBitmap(imageBlob);
@@ -144,7 +207,7 @@ async function cropPlayerScreenshot(
     const cropWidth = right - left;
     const cropHeight = bottom - top;
     if (cropWidth < 1 || cropHeight < 1) {
-      throw new Error("The player is outside the visible tab area.");
+      throw new Error("The selected area is outside the visible tab area.");
     }
 
     const outputScale = Math.min(1, 1600 / cropWidth);
@@ -222,6 +285,42 @@ async function capturePlayerForSender(
     getWatchVideoId(afterCapture.url) !== request.videoId
   ) {
     throw new Error("The active video changed during capture. No screenshot was inserted.");
+  }
+  return cropPlayerScreenshot(capturedImage, request);
+}
+
+async function capturePageSectionForSender(
+  sender: chrome.runtime.MessageSender,
+  request: PageSectionScreenshotRequest,
+): Promise<string> {
+  const tabId = sender.tab?.id;
+  const windowId = sender.tab?.windowId;
+  if (
+    sender.frameId !== 0 ||
+    tabId === undefined ||
+    windowId === undefined ||
+    normalizePageSourceUrl(sender.url ?? "") !== request.sourceUrl
+  ) {
+    throw new Error("Section capture is available only on the current web page.");
+  }
+
+  const beforeCapture = await chrome.tabs.get(tabId);
+  if (
+    !beforeCapture.active ||
+    beforeCapture.windowId !== windowId ||
+    normalizePageSourceUrl(beforeCapture.url ?? "") !== request.sourceUrl
+  ) {
+    throw new Error("Return to the selected page before capturing a section.");
+  }
+
+  const capturedImage = await captureVisibleTab(windowId);
+  const afterCapture = await chrome.tabs.get(tabId);
+  if (
+    !afterCapture.active ||
+    afterCapture.windowId !== windowId ||
+    normalizePageSourceUrl(afterCapture.url ?? "") !== request.sourceUrl
+  ) {
+    throw new Error("The page changed during capture. No screenshot was inserted.");
   }
   return cropPlayerScreenshot(capturedImage, request);
 }
@@ -450,12 +549,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (isRecord(message) && message.type === "OPEN_DASHBOARD") {
     const senderUrl = parseSenderUrl(sender.url);
+    const isYouTubeWatch =
+      senderUrl !== null &&
+      ["youtube.com", "www.youtube.com"].includes(senderUrl.hostname) &&
+      senderUrl.pathname === "/watch";
+    const isWebPage = senderUrl !== null &&
+      normalizePageSourceUrl(senderUrl.toString()) !== null;
     if (
       sender.id !== chrome.runtime.id ||
       !sender.tab ||
-      !senderUrl ||
-      !["youtube.com", "www.youtube.com"].includes(senderUrl.hostname) ||
-      senderUrl.pathname !== "/watch"
+      (!isYouTubeWatch && !isWebPage)
     ) {
       sendResponse({ success: false });
       return;
@@ -582,6 +685,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             error instanceof Error
               ? error.message
               : "Could not capture the video frame.",
+        });
+      });
+    return true;
+  }
+
+  if (message.type === "CAPTURE_PAGE_SECTION") {
+    if (!isPageSectionScreenshotRequest(message)) {
+      sendResponse({
+        success: false,
+        error: "Section capture details are invalid.",
+      });
+      return;
+    }
+    void capturePageSectionForSender(sender, message)
+      .then((image) => sendResponse({ success: true, image }))
+      .catch((error: unknown) => {
+        console.error("[YouTube Notes] Page section screenshot failed:", error);
+        sendResponse({
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not capture the selected section.",
         });
       });
     return true;
@@ -1003,6 +1129,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.error("[YouTube Knowledge] Load notes error:", error);
         sendResponse({
           success: false,
+          status: isAuthenticationRequiredError(error) ? 401 : 0,
+          authRequired: isAuthenticationRequiredError(error),
           error:
             error instanceof Error ? error.message : "Failed to load notes.",
         });
@@ -1178,6 +1306,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         title: note.title.trim(),
         content: typeof note.content === "string" ? note.content : "",
         document: note.document,
+        source_url: typeof note.source_url === "string" ? note.source_url : "",
+        source_title: typeof note.source_title === "string" ? note.source_title : "",
         note_type: "STANDALONE",
         video: null,
         folder: note.folder ?? null,

@@ -1,242 +1,231 @@
-import React from "react"
-import {
-  createRoot,
-  type Root,
-} from "react-dom/client"
-import Sidebar, {
-  type TranscriptStatus,
-  type VideoNote,
-} from "./Sidebar"
-
+import React from "react";
+import { createRoot, type Root } from "react-dom/client";
+import Sidebar, { type TranscriptStatus, type VideoNote } from "./Sidebar";
+import { getCurrentPageSource, type PageSource } from "./pageSource";
 
 interface VideoContext {
   video: {
-    youtube_id: string
-    title: string
-    transcript_status: TranscriptStatus
-  } | null
-  notes: VideoNote[]
+    youtube_id: string;
+    title: string;
+    transcript_status: TranscriptStatus;
+  } | null;
+  notes: VideoNote[];
 }
 
-type VideoContextStatus = "loading" | "loaded" | "error" | "login_required"
+type VideoContextStatus = "loading" | "loaded" | "error" | "login_required";
 
-let sidebarRoot: Root | null = null
-let lastVideoId: string | null = null
-let videoContextRequestVersion = 0
+const contentWindow = window as Window & {
+  __youtubeNotesContentInitialized?: boolean;
+};
 
-function getYouTubeVideoId(): string | null {
-  const url = new URL(window.location.href)
+if (!contentWindow.__youtubeNotesContentInitialized) {
+  contentWindow.__youtubeNotesContentInitialized = true;
 
-  if (url.pathname !== "/watch") {
-    return null
+  let sidebarRoot: Root | null = null;
+  let sidebarContainer: HTMLElement | null = null;
+  let lastVideoId: string | null = null;
+  let lastPageSourceUrl: string | null = null;
+  let contextRequestVersion = 0;
+
+  function getYouTubeVideoId(): string | null {
+    const url = new URL(window.location.href);
+    if (
+      !["youtube.com", "www.youtube.com"].includes(url.hostname) ||
+      url.pathname !== "/watch"
+    ) {
+      return null;
+    }
+    return url.searchParams.get("v");
   }
 
-  return url.searchParams.get("v")
-}
-
-/**
- * Extract channel metadata from the current YouTube page.
- */
-
-/**
- * Extract basic metadata from the currently open
- * YouTube page.
- */
-
-
-function renderSidebar(
-  data: VideoContext,
-  detectedVideoId: string,
-  contextStatus: VideoContextStatus,
-) {
-  let container =
-    window.document.getElementById(
-      "youtube-notes-root",
-    )
-
-  if (!container) {
-    container =
-      window.document.createElement(
-        "div",
-      )
-
-    container.id =
-      "youtube-notes-root"
-
-    window.document.body.appendChild(
-      container,
-    )
-  }
-
-  if (!sidebarRoot) {
-    sidebarRoot =
-      createRoot(container)
-  }
-
-  sidebarRoot.render(
-    <React.StrictMode>
-      <Sidebar
-        key={detectedVideoId}
-        videoId={detectedVideoId}
-        videoTitle={
-          data.video?.youtube_id === detectedVideoId
-            ? data.video.title
-            : ""
-        }
-        notes={
-          contextStatus === "loaded" &&
-          data.video?.youtube_id === detectedVideoId
-            ? data.notes
-            : []
-        }
-        contextStatus={contextStatus}
-        transcriptStatus={
-          contextStatus === "loaded" &&
-          data.video?.youtube_id === detectedVideoId
-            ? data.video.transcript_status
-            : null
-        }
-      />
-    </React.StrictMode>,
-  )
-}
-
-function fetchVideoContext(
-  videoId: string,
-) {
-  const requestVersion = ++videoContextRequestVersion
-
-  renderSidebar(
-    {
-      video: null,
-      notes: [],
-    },
-    videoId,
-    "loading",
-  )
-
-  chrome.runtime.sendMessage(
-    {
-      type: "GET_VIDEO_CONTEXT",
-      videoId,
-    },
-    (response) => {
-      if (
-        requestVersion !== videoContextRequestVersion ||
-        getYouTubeVideoId() !== videoId
-      ) {
-        return
-      }
-
-      if (
-        chrome.runtime.lastError
-      ) {
-        console.error(
-          "[YouTube Knowledge] Extension messaging error:",
-          chrome.runtime.lastError
-            .message,
-        )
-
-        renderSidebar(
-          {
-            video: null,
-            notes: [],
-          },
-          videoId,
-          "error",
-        )
-
-        return
-      }
-
-      if (!response?.success) {
-        console.error(
-          "[YouTube Knowledge] Failed to fetch video context:",
-          response?.error,
-        )
-
-        renderSidebar(
-          {
-            video: null,
-            notes: [],
-          },
-          videoId,
-          response?.status === 401 || response?.authRequired
-            ? "login_required"
-            : "error",
-        )
-
-        return
-      }
-
-      renderSidebar(
-        response.data,
-        videoId,
-        "loaded",
-      )
-    },
-  )
-}
-
-function checkForVideoChange() {
-  const videoId =
-    getYouTubeVideoId()
-
-  if (!videoId) {
-    if (lastVideoId !== null) {
-      lastVideoId = null
-      videoContextRequestVersion += 1
+  function renderSidebar(
+    data: VideoContext,
+    detectedVideoId: string,
+    contextStatus: VideoContextStatus,
+    pageSource: PageSource | null = null,
+  ) {
+    let container = window.document.getElementById("youtube-notes-root");
+    if (!container) {
+      container = window.document.createElement("div");
+      container.id = "youtube-notes-root";
+      window.document.body.appendChild(container);
     }
 
-    return
+    if (sidebarContainer !== container) {
+      sidebarRoot?.unmount();
+      sidebarRoot = createRoot(container);
+      sidebarContainer = container;
+    }
+    const root = sidebarRoot;
+    if (!root) throw new Error("The page sidebar root could not be created.");
+    root.render(
+      <React.StrictMode>
+        <Sidebar
+          key={pageSource?.url ?? detectedVideoId}
+          videoId={detectedVideoId}
+          videoTitle={
+            pageSource?.title ??
+            (data.video?.youtube_id === detectedVideoId
+              ? data.video.title
+              : "")
+          }
+          sourceUrl={pageSource?.url}
+          sourceTitle={pageSource?.title}
+          notes={
+            contextStatus === "loaded" &&
+            (pageSource !== null ||
+              data.video?.youtube_id === detectedVideoId)
+              ? data.notes
+              : []
+          }
+          contextStatus={contextStatus}
+          transcriptStatus={
+            pageSource === null &&
+            contextStatus === "loaded" &&
+            data.video?.youtube_id === detectedVideoId
+              ? data.video.transcript_status
+              : null
+          }
+        />
+      </React.StrictMode>,
+    );
   }
 
-  if (
-    videoId === lastVideoId
-  ) {
-    return
+  function fetchVideoContext(videoId: string) {
+    const requestVersion = ++contextRequestVersion;
+    renderSidebar({ video: null, notes: [] }, videoId, "loading");
+
+    chrome.runtime.sendMessage(
+      { type: "GET_VIDEO_CONTEXT", videoId },
+      (response) => {
+        if (
+          requestVersion !== contextRequestVersion ||
+          getYouTubeVideoId() !== videoId
+        ) {
+          return;
+        }
+        if (chrome.runtime.lastError || !response?.success) {
+          console.error(
+            "[YouTube Notes] Failed to fetch video context:",
+            chrome.runtime.lastError?.message ?? response?.error,
+          );
+          renderSidebar(
+            { video: null, notes: [] },
+            videoId,
+            response?.authRequired ? "login_required" : "error",
+          );
+          return;
+        }
+        renderSidebar(response.data, videoId, "loaded");
+      },
+    );
   }
 
-  lastVideoId = videoId
+  function getNotesFromResponse(value: unknown): VideoNote[] {
+    const values = Array.isArray(value)
+      ? value
+      : typeof value === "object" &&
+          value !== null &&
+          "results" in value &&
+          Array.isArray(value.results)
+        ? value.results
+        : [];
+    return values.filter(
+      (item): item is VideoNote =>
+        typeof item === "object" &&
+        item !== null &&
+        !Array.isArray(item) &&
+        "id" in item &&
+        typeof item.id === "number" &&
+        "title" in item &&
+        typeof item.title === "string" &&
+        "content" in item &&
+        typeof item.content === "string" &&
+        "note_type" in item &&
+        typeof item.note_type === "string" &&
+        "source_url" in item &&
+        typeof item.source_url === "string",
+    );
+  }
 
-  console.log(
-    "[YouTube Knowledge] New YouTube video:",
-    videoId,
-  )
+  function fetchPageContext(pageSource: PageSource) {
+    const requestVersion = ++contextRequestVersion;
+    renderSidebar(
+      { video: null, notes: [] },
+      "",
+      "loading",
+      pageSource,
+    );
 
-  /*
-   * YouTube is a SPA and some metadata elements
-   * may appear shortly after the URL changes.
-   *
-   * Perform an immediate extraction.
-   */
-    /*
-  * Only fetch existing saved video context.
-  *
-  * Opening a YouTube video must not automatically
-  * create or persist a Video record.
-  */
-  fetchVideoContext(
-    videoId,
-  )
+    chrome.runtime.sendMessage({ type: "GET_NOTES" }, (response) => {
+      if (
+        requestVersion !== contextRequestVersion ||
+        getCurrentPageSource()?.url !== pageSource.url
+      ) {
+        return;
+      }
+      if (chrome.runtime.lastError || !response?.success) {
+        console.error(
+          "[YouTube Notes] Failed to fetch page notes:",
+          chrome.runtime.lastError?.message ?? response?.error,
+        );
+        renderSidebar(
+          { video: null, notes: [] },
+          "",
+          response?.authRequired ? "login_required" : "error",
+          pageSource,
+        );
+        return;
+      }
+
+      const notes = getNotesFromResponse(response.data).filter(
+        (note) => note.source_url === pageSource.url,
+      );
+      renderSidebar({ video: null, notes }, "", "loaded", pageSource);
+    });
+  }
+
+  function checkForContextChange() {
+    const videoId = getYouTubeVideoId();
+    if (videoId) {
+      lastPageSourceUrl = null;
+      if (lastVideoId !== videoId) {
+        lastVideoId = videoId;
+        fetchVideoContext(videoId);
+      }
+      return;
+    }
+
+    lastVideoId = null;
+    const pageSource = getCurrentPageSource();
+    if (!pageSource) {
+      lastPageSourceUrl = null;
+      return;
+    }
+    if (pageSource.url !== lastPageSourceUrl) {
+      lastPageSourceUrl = pageSource.url;
+      fetchPageContext(pageSource);
+    }
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "TOGGLE_PAGE_SIDEBAR") return false;
+    const container = window.document.getElementById("youtube-notes-root");
+    if (container) {
+      sidebarRoot?.unmount();
+      sidebarRoot = null;
+      sidebarContainer = null;
+      container.remove();
+      sendResponse({ success: true, open: false });
+      return false;
+    }
+    lastVideoId = null;
+    lastPageSourceUrl = null;
+    checkForContextChange();
+    sendResponse({ success: true, open: true });
+    return false;
+  });
+
+  checkForContextChange();
+  window.setInterval(checkForContextChange, 500);
 }
-
-function initialize() {
-  checkForVideoChange()
-
-  /*
-   * YouTube is a SPA.
-   *
-   * The URL can change without the
-   * page/content script being reloaded.
-   *
-   * A lightweight interval makes sure
-   * we detect the new video.
-   */
-  window.setInterval(
-    checkForVideoChange,
-    500,
-  )
-}
-
-initialize()

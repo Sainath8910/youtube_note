@@ -4,6 +4,11 @@ interface DashboardTab {
   url?: string;
 }
 
+export interface DashboardPageSource {
+  url: string;
+  title: string;
+}
+
 interface DashboardTabApi {
   runtime: {
     getURL(path: string): string;
@@ -30,9 +35,20 @@ interface DashboardTabApi {
   };
 }
 
-export function openDashboardTab(api: DashboardTabApi): void {
+export function openDashboardTab(
+  api: DashboardTabApi,
+  source?: DashboardPageSource,
+): void {
   const dashboardPageUrl = api.runtime.getURL("index.html");
-  const dashboardUrl = `${dashboardPageUrl}#/dashboard`;
+  const sourceQuery = source
+    ? `?${new URLSearchParams({
+        sourceUrl: source.url,
+        sourceTitle: source.title,
+      })}`
+    : "";
+  const dashboardUrl = `${dashboardPageUrl}#/${
+    source ? `notes/new${sourceQuery}` : "dashboard"
+  }`;
 
   api.tabs.query({ url: `${dashboardPageUrl}*` }, (tabs) => {
     const queryError = api.runtime.lastError;

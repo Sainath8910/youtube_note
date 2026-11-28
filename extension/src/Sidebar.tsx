@@ -47,6 +47,14 @@ import {
   captureCurrentVideoScreenshot,
   isCurrentVideoPlayerAvailable,
 } from "./videoScreenshot";
+import { captureCurrentPageSection } from "./pageScreenshot";
+import {
+  capturePagePosition,
+  formatPagePosition,
+  isPagePositionData,
+  jumpToPagePosition,
+} from "./pagePosition";
+import { normalizePageSourceUrl } from "./pageSource";
 export type {
   NoteBlock,
   NoteBlockType,
@@ -58,6 +66,8 @@ export type {
 interface SidebarProps {
   videoId: string;
   videoTitle: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
   notes: VideoNote[];
   contextStatus: "loading" | "loaded" | "error" | "login_required";
   transcriptStatus: TranscriptStatus | null;
@@ -472,6 +482,43 @@ function sendCreateNote(data: {
   });
 }
 
+function sendCreateStandaloneNote(data: {
+  title: string;
+  content: string;
+  document: NoteDocument;
+  sourceUrl: string;
+  sourceTitle: string;
+}): Promise<VideoNote> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "CREATE_STANDALONE_NOTE",
+        data: {
+          title: data.title,
+          content: data.content,
+          document: data.document,
+          source_url: data.sourceUrl,
+          source_title: data.sourceTitle,
+          note_type: "STANDALONE",
+          video: null,
+          timestamp_seconds: null,
+        },
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success || !response.data?.note) {
+          reject(new Error(response?.error || "Failed to create page note."));
+          return;
+        }
+        resolve(response.data.note);
+      },
+    );
+  });
+}
+
 function sendUpdateNote(
   noteId: number,
   data: {
@@ -619,6 +666,7 @@ interface BlockEditorProps {
   renderBlockAssistance?: (block: NoteBlock) => ReactNode;
   enableTimestampJump?: boolean;
   timestampContent?: () => string;
+  pageSourceUrl?: string;
 }
 
 export function BlockEditor({
@@ -629,6 +677,7 @@ export function BlockEditor({
   renderBlockAssistance,
   enableTimestampJump = true,
   timestampContent = () => formatTimestamp(getCurrentVideoTime()),
+  pageSourceUrl,
 }: BlockEditorProps) {
   const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
 
@@ -757,7 +806,12 @@ export function BlockEditor({
   async function captureScreenshot(afterId?: string) {
     if (!onCaptureScreenshot || isCapturingScreenshot) return;
     setIsCapturingScreenshot(true);
-    setScreenshotCaptureMessage({ text: "Capturing screenshot...", isError: false });
+    setScreenshotCaptureMessage({
+      text: pageSourceUrl
+        ? "Select a page section, or press Escape to cancel."
+        : "Capturing screenshot...",
+      isError: false,
+    });
     try {
       const block = await onCaptureScreenshot();
       if (
@@ -769,21 +823,52 @@ export function BlockEditor({
       }
       insertBlock(block, afterId);
       setScreenshotCaptureMessage({
-        text: "Screenshot captured.",
+        text: pageSourceUrl ? "Section image captured." : "Screenshot captured.",
         isError: false,
       });
       window.setTimeout(() => setScreenshotCaptureMessage(null), 2500);
     } catch (captureError) {
+      const errorMessage =
+        captureError instanceof Error
+          ? captureError.message
+          : "Screenshot capture failed.";
+      const isCanceled = errorMessage === "Section selection canceled.";
       setScreenshotCaptureMessage({
-        text:
-          captureError instanceof Error
-            ? captureError.message
-            : "Screenshot capture failed. Check that the YouTube player is visible and retry.",
-        isError: true,
+        text: isCanceled
+          ? "Section selection canceled."
+          : captureError instanceof Error
+            ? errorMessage
+            : pageSourceUrl
+              ? "Section capture failed. Try selecting a visible page section again."
+              : "Screenshot capture failed. Check that the YouTube player is visible and retry.",
+        isError: !isCanceled,
       });
     } finally {
       setIsCapturingScreenshot(false);
     }
+  }
+
+  function addPagePosition(afterId?: string) {
+    if (!pageSourceUrl) return;
+    const position = capturePagePosition(pageSourceUrl);
+    insertBlock(
+      {
+        id: createId(),
+        type: "page_position",
+        content: formatPagePosition(position),
+        metadata: { page_position: position },
+      },
+      afterId,
+    );
+  }
+
+  function updatePagePosition(block: NoteBlock) {
+    if (!pageSourceUrl) return;
+    const position = capturePagePosition(pageSourceUrl);
+    updateBlock(block.id, {
+      content: formatPagePosition(position),
+      metadata: { ...block.metadata, page_position: position },
+    });
   }
 
   function moveBlock(blockId: string, direction: "up" | "down") {
@@ -1118,11 +1203,24 @@ export function BlockEditor({
 
                   <option value="equation">Equation</option>
 
-                  <option value="timestamp">Timestamp</option>
+                  {pageSourceUrl || block.type === "page_position" ? (
+                    <>
+                      <option value="page_position">Page position</option>
+                      {block.type === "timestamp" && (
+                        <option value="timestamp">Legacy timestamp</option>
+                      )}
+                    </>
+                  ) : (
+                    <option value="timestamp">Timestamp</option>
+                  )}
 
                   <option value="image">Image</option>
                   {block.type === "screenshot" && (
-                    <option value="screenshot">Video Screenshot</option>
+                    <option value="screenshot">
+                      {block.metadata?.source === "page"
+                        ? "Page Section Screenshot"
+                        : "Video Screenshot"}
+                    </option>
                   )}
                 </select>
               </div>
@@ -1184,7 +1282,60 @@ export function BlockEditor({
             </div>
 
             {/* Block content */}
-            {block.type === "timestamp" ? (
+            {block.type === "page_position" ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 7,
+                  color: colors.muted,
+                  fontSize: 11,
+                }}
+              >
+                <input
+                  value={
+                    typeof block.metadata?.caption === "string"
+                      ? block.metadata.caption
+                      : ""
+                  }
+                  aria-label={`Page position caption for block ${index + 1}`}
+                  onChange={(event) =>
+                    updateBlock(block.id, {
+                      metadata: {
+                        ...block.metadata,
+                        caption: event.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Caption (e.g. Continue reading)"
+                  style={{
+                    ...editorInputStyle,
+                    color: colors.primaryText,
+                    background: colors.input,
+                    borderColor: colors.border,
+                    fontSize: 12,
+                  }}
+                />
+                <span>
+                  {block.content || "Set this block to the current position"}
+                </span>
+                {pageSourceUrl && (
+                  <button
+                    type="button"
+                    disabled={!isPagePositionData(block.metadata?.page_position)}
+                    onClick={() => updatePagePosition(block)}
+                    style={{
+                      ...smallToolButton,
+                      alignSelf: "flex-start",
+                      color: colors.accent,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    Set to current position
+                  </button>
+                )}
+              </div>
+            ) : block.type === "timestamp" ? (
               <div
                 style={{
                   display: "flex",
@@ -1342,7 +1493,11 @@ export function BlockEditor({
                 {block.metadata?.image ? (
                   <img
                     src={block.metadata.image}
-                    alt="YouTube video screenshot"
+                    alt={
+                      block.metadata?.source === "page"
+                        ? block.metadata.alt || "Page section screenshot"
+                        : "YouTube video screenshot"
+                    }
                     style={{
                       width: "100%",
                       maxWidth: 500,
@@ -1942,19 +2097,33 @@ export function BlockEditor({
                 + Equation
               </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  addBlock("timestamp", block.id, timestampContent())
-                }
-                style={{
-                  ...smallToolButton,
-                  color: colors.muted,
-                  borderColor: colors.border,
-                }}
-              >
-                + Timestamp
-              </button>
+              {pageSourceUrl ? (
+                <button
+                  type="button"
+                  onClick={() => addPagePosition(block.id)}
+                  style={{
+                    ...smallToolButton,
+                    color: colors.muted,
+                    borderColor: colors.border,
+                  }}
+                >
+                  + Page position
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    addBlock("timestamp", block.id, timestampContent())
+                  }
+                  style={{
+                    ...smallToolButton,
+                    color: colors.muted,
+                    borderColor: colors.border,
+                  }}
+                >
+                  + Timestamp
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1996,8 +2165,12 @@ export function BlockEditor({
                 >
                   <Camera size={12} aria-hidden="true" />
                   {isCapturingScreenshot
-                    ? "Capturing..."
-                    : "Capture Screenshot"}
+                    ? pageSourceUrl
+                      ? "Selecting..."
+                      : "Capturing..."
+                    : pageSourceUrl
+                      ? "Capture Section"
+                      : "Capture Screenshot"}
                 </button>
               )}
             </div>
@@ -2143,6 +2316,68 @@ export function NoteReader({
             );
           }
 
+          if (block.type === "page_position") {
+            const position = block.metadata?.page_position;
+            if (!isPagePositionData(position)) {
+              return (
+                <span key={block.id} style={{ color: colors.muted, fontSize: 11 }}>
+                  Page position unavailable
+                </span>
+              );
+            }
+            const isCurrentPage =
+              normalizePageSourceUrl(window.location.href) === position.source_url;
+            const caption =
+              typeof block.metadata?.caption === "string"
+                ? block.metadata.caption.trim()
+                : "";
+            const label = caption || "Page position";
+            const positionLabel = formatPagePosition(position);
+            const positionLinkStyle: CSSProperties = {
+              alignSelf: "flex-start",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 8,
+              padding: "7px 10px",
+              background: colors.accentSoft,
+              color: colors.accent,
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 700,
+              textDecoration: "none",
+            };
+            return isCurrentPage ? (
+              <button
+                key={block.id}
+                type="button"
+                onClick={() => jumpToPagePosition(position)}
+                title={`Jump to saved page position (${positionLabel})`}
+                aria-label={`Jump to ${label}, ${positionLabel}`}
+                style={{
+                  ...positionLinkStyle,
+                }}
+              >
+                <ArrowDown size={14} aria-hidden="true" />
+                {label}
+              </button>
+            ) : (
+              <a
+                key={block.id}
+                href={position.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open source page (${positionLabel})`}
+                aria-label={`Open source page for ${label}`}
+                style={positionLinkStyle}
+              >
+                <ArrowDown size={14} aria-hidden="true" />
+                {label}
+              </a>
+            );
+          }
+
           if (block.type === "timestamp") {
             const seconds = parseTimestamp(block.content);
 
@@ -2241,9 +2476,11 @@ export function NoteReader({
                   <img
                     src={screenshotImage}
                     alt={
-                      timestampSeconds === null
-                        ? "YouTube video screenshot"
-                        : `YouTube video screenshot at ${formatTimestamp(timestampSeconds)}`
+                      block.metadata?.source === "page"
+                        ? block.metadata.alt || "Page section screenshot"
+                        : timestampSeconds === null
+                          ? "YouTube video screenshot"
+                          : `YouTube video screenshot at ${formatTimestamp(timestampSeconds)}`
                     }
                     style={{
                       display: "block",
@@ -2309,6 +2546,19 @@ export function NoteReader({
                     )}
                   </figcaption>
                 )}
+                {block.metadata?.source === "page" &&
+                  typeof block.metadata.alt === "string" &&
+                  block.metadata.alt && (
+                    <figcaption
+                      style={{
+                        marginTop: 6,
+                        color: colors.muted,
+                        fontSize: 11,
+                      }}
+                    >
+                      {block.metadata.alt}
+                    </figcaption>
+                  )}
               </figure>
             );
           }
@@ -2654,6 +2904,8 @@ function FolderPathMetadata({
 interface NoteWriterProps {
   note: VideoNote | null;
   videoId: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
   colors: ThemeColors;
   onSaved: (note: VideoNote) => void;
 }
@@ -2661,10 +2913,12 @@ interface NoteWriterProps {
 function NoteWriter({
   note,
   videoId,
+  sourceUrl,
+  sourceTitle,
   colors,
   onSaved,
 }: NoteWriterProps) {
-  const [title, setTitle] = useState(note?.title ?? "");
+  const [title, setTitle] = useState(note?.title ?? sourceTitle ?? "");
 
   const [noteDocument, setNoteDocument] = useState<NoteDocument>(() =>
     note ? normalizeDocument(note) : createEmptyDocument(),
@@ -2674,19 +2928,23 @@ function NoteWriter({
 
   const [error, setError] = useState<string | null>(null);
   const screenshotCaptureEligible =
-    note === null || (note.note_type === "VIDEO" && note.video != null);
+    sourceUrl !== undefined ||
+    note === null ||
+    (note.note_type === "VIDEO" && note.video != null);
   const subscribeToScreenshotAvailability = useCallback(
     (onStoreChange: () => void) => {
       if (!screenshotCaptureEligible) return () => {};
+      if (sourceUrl) return () => {};
       const interval = window.setInterval(onStoreChange, 500);
       return () => window.clearInterval(interval);
     },
-    [screenshotCaptureEligible],
+    [screenshotCaptureEligible, sourceUrl],
   );
   const getScreenshotAvailability = useCallback(
     () =>
-      screenshotCaptureEligible && isCurrentVideoPlayerAvailable(videoId),
-    [screenshotCaptureEligible, videoId],
+      sourceUrl !== undefined ||
+      (screenshotCaptureEligible && isCurrentVideoPlayerAvailable(videoId)),
+    [screenshotCaptureEligible, sourceUrl, videoId],
   );
   const canCaptureScreenshot = useSyncExternalStore(
     subscribeToScreenshotAvailability,
@@ -2695,6 +2953,19 @@ function NoteWriter({
   );
 
   async function captureScreenshotBlock(): Promise<NoteBlock> {
+    if (sourceUrl) {
+      const captured = await captureCurrentPageSection(sourceUrl);
+      return {
+        id: createId(),
+        type: "screenshot",
+        content: "",
+        metadata: {
+          source: "page",
+          alt: captured.title,
+          image: captured.image,
+        },
+      };
+    }
     if (getActiveYouTubeVideoId() !== videoId) {
       throw new Error("The active YouTube video changed. Try capturing again.");
     }
@@ -2712,12 +2983,12 @@ function NoteWriter({
   }
 
   useEffect(() => {
-    setTitle(note?.title ?? "");
+    setTitle(note?.title ?? sourceTitle ?? "");
 
     setNoteDocument(note ? normalizeDocument(note) : createEmptyDocument());
 
     setError(null);
-  }, [note]);
+  }, [note, sourceTitle]);
 
   async function handleSave() {
     if (!title.trim()) {
@@ -2763,25 +3034,35 @@ function NoteWriter({
           document: cleanedDocument,
         });
       } else {
-        const activeVideoId = getActiveYouTubeVideoId();
+        if (sourceUrl) {
+          savedNote = await sendCreateStandaloneNote({
+            title: title.trim(),
+            content: plainText,
+            document: cleanedDocument,
+            sourceUrl,
+            sourceTitle: sourceTitle ?? "",
+          });
+        } else {
+          const activeVideoId = getActiveYouTubeVideoId();
 
-        if (!activeVideoId) {
-          throw new Error("The active YouTube video could not be identified.");
+          if (!activeVideoId) {
+            throw new Error("The active YouTube video could not be identified.");
+          }
+
+          if (videoId !== activeVideoId) {
+            throw new Error(
+              "The sidebar is updating for the current video. Please try saving again.",
+            );
+          }
+
+          savedNote = await sendCreateNote({
+            title: title.trim(),
+            content: plainText,
+            document: cleanedDocument,
+            youtube_id: activeVideoId,
+            timestamp_seconds: null,
+          });
         }
-
-        if (videoId !== activeVideoId) {
-          throw new Error(
-            "The sidebar is updating for the current video. Please try saving again.",
-          );
-        }
-
-        savedNote = await sendCreateNote({
-          title: title.trim(),
-          content: plainText,
-          document: cleanedDocument,
-          youtube_id: activeVideoId,
-          timestamp_seconds: null,
-        });
       }
 
       onSaved(savedNote);
@@ -2791,7 +3072,7 @@ function NoteWriter({
 
       setError(
         /extension context invalidated/i.test(errorMessage)
-          ? "The extension was reloaded. Refresh this YouTube tab, then reopen the sidebar and save your note again."
+          ? "The extension was reloaded. Refresh this page, then reopen the sidebar and save your note again."
           : errorMessage,
       );
     } finally {
@@ -2857,6 +3138,8 @@ function NoteWriter({
         colors={colors}
         onChange={setNoteDocument}
         onCaptureScreenshot={canCaptureScreenshot ? captureScreenshotBlock : undefined}
+        enableTimestampJump={!sourceUrl}
+        pageSourceUrl={sourceUrl}
       />
 
       <div
@@ -2930,6 +3213,8 @@ interface AnalyzeVideoResponse {
 export default function Sidebar({
   videoId,
   videoTitle,
+  sourceUrl,
+  sourceTitle,
   notes,
   contextStatus,
   transcriptStatus,
@@ -2996,7 +3281,7 @@ export default function Sidebar({
   currentVideoIdRef.current = videoId;
 
   useEffect(() => {
-    if (contextStatus !== "loaded") return;
+    if (sourceUrl || contextStatus !== "loaded") return;
     let active = true;
     let timeout: number | null = null;
     let lastSubmittedSignature = "";
@@ -3058,7 +3343,7 @@ export default function Sidebar({
       observer.disconnect();
       if (timeout !== null) window.clearTimeout(timeout);
     };
-  }, [contextStatus, videoId, videoTitle]);
+  }, [contextStatus, sourceUrl, videoId, videoTitle]);
 
   useEffect(() => {
     let active = true;
@@ -3576,7 +3861,7 @@ export default function Sidebar({
               maxWidth: 190,
             }}
           >
-            {videoId}
+            {sourceTitle || sourceUrl || videoId}
           </div>
         </div>
 
@@ -3847,6 +4132,12 @@ export default function Sidebar({
                 type="button"
                 onClick={() => openEditor(null)}
                 style={{
+                  display: "inline-flex",
+                  flexShrink: 0,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  minHeight: 32,
                   border: "none",
                   borderRadius: 8,
                   padding: "8px 10px",
@@ -3854,6 +4145,8 @@ export default function Sidebar({
                   color: "#082f49",
                   fontSize: 11,
                   fontWeight: 800,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
                   cursor: "pointer",
                 }}
               >
@@ -3862,7 +4155,7 @@ export default function Sidebar({
               </button>
             </div>
 
-            {currentTranscriptStatus !== "READY" && (
+            {!sourceUrl && currentTranscriptStatus !== "READY" && (
               <section
                 aria-label="Transcript"
                 style={{
@@ -3956,7 +4249,7 @@ export default function Sidebar({
                   fontSize: 12,
                 }}
               >
-                Loading notes for this video...
+                {sourceUrl ? "Loading notes for this page..." : "Loading notes for this video..."}
               </div>
             ) : contextStatus === "login_required" ? (
               <div
@@ -3974,7 +4267,9 @@ export default function Sidebar({
                   Sign in to your extension
                 </strong>
                 <span style={{ color: colors.muted, fontSize: 12 }}>
-                  Sign in, then reload this video to refresh your notes.
+                  {sourceUrl
+                    ? "Sign in, then reopen this page sidebar to refresh your notes."
+                    : "Sign in, then reload this video to refresh your notes."}
                 </span>
                 <button
                   type="button"
@@ -4003,7 +4298,9 @@ export default function Sidebar({
                   fontSize: 12,
                 }}
               >
-                Could not load notes for this video.
+                {sourceUrl
+                  ? "Could not load notes for this page."
+                  : "Could not load notes for this video."}
               </div>
             ) : currentNotes.length === 0 ? (
               <div
@@ -4040,7 +4337,9 @@ export default function Sidebar({
                     color: colors.muted,
                   }}
                 >
-                  Create your first note for this video.
+                  {sourceUrl
+                    ? "Create your first note for this page."
+                    : "Create your first note for this video."}
                 </div>
               </div>
             ) : (
@@ -4191,6 +4490,7 @@ export default function Sidebar({
           <NoteReader
             note={selectedNote}
             colors={colors}
+            enableTimestampJump={!sourceUrl}
             showFolderPath
             onChecklistItemToggle={handleChecklistItemToggle}
             checklistToggleDisabled={isSavingChecklist}
@@ -4203,6 +4503,8 @@ export default function Sidebar({
           <NoteWriter
             note={editingNote}
             videoId={videoId}
+            sourceUrl={sourceUrl}
+            sourceTitle={sourceTitle}
             colors={colors}
             onSaved={handleSaved}
           />
@@ -4274,11 +4576,18 @@ const topIconButton: CSSProperties = {
 };
 
 const headerActionButton: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  flexShrink: 0,
   border: "1px solid",
   borderRadius: 8,
   padding: "7px 10px",
   fontSize: 11,
   fontWeight: 800,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
   cursor: "pointer",
 };
 
@@ -4325,11 +4634,18 @@ const editorTextareaStyle: CSSProperties = {
 };
 
 const smallToolButton: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 5,
+  flexShrink: 0,
   border: "1px solid",
   borderRadius: 6,
   background: "transparent",
   padding: "4px 7px",
   fontSize: 9,
   fontWeight: 700,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
   cursor: "pointer",
 };

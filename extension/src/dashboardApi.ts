@@ -98,6 +98,7 @@ function isNoteBlock(value: unknown): value is NoteBlock {
       value.type === "heading" ||
       value.type === "equation" ||
       value.type === "timestamp" ||
+      value.type === "page_position" ||
       value.type === "image" ||
       value.type === "url" ||
       value.type === "code" ||
@@ -168,6 +169,8 @@ export function normalizeNote(value: unknown, index: number): DashboardNote {
     value.id <= 0 ||
     typeof value.title !== "string" ||
     typeof value.content !== "string" ||
+    (value.source_url !== undefined && typeof value.source_url !== "string") ||
+    (value.source_title !== undefined && typeof value.source_title !== "string") ||
     (value.note_type !== "VIDEO" && value.note_type !== "STANDALONE") ||
     !isNullableId(value.video) ||
     !isNullableId(value.folder) ||
@@ -183,6 +186,8 @@ export function normalizeNote(value: unknown, index: number): DashboardNote {
   return {
     id: value.id,
     title: value.title,
+    source_url: typeof value.source_url === "string" ? value.source_url : "",
+    source_title: typeof value.source_title === "string" ? value.source_title : "",
     content: value.content,
     document: normalizeDocument(value.document),
     video_detail: normalizeVideoMetadata(value.video_detail),
@@ -312,14 +317,19 @@ export function removeDashboardNote(
 
 export async function createStandaloneDashboardNote(data: {
   title: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
   content: string;
   document: NoteDocument;
   folder: number | null;
 }): Promise<DashboardNote> {
+  const { sourceUrl, sourceTitle, ...noteData } = data;
   const savedNote = await sendNoteCommand({
     type: "CREATE_STANDALONE_NOTE",
     data: {
-      ...data,
+      ...noteData,
+      source_url: sourceUrl ?? "",
+      source_title: sourceTitle ?? "",
       note_type: "STANDALONE",
       video: null,
       timestamp_seconds: null,

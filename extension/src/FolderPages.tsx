@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   FileText,
   Folder,
+  Globe,
   Plus,
   Search,
   Trash2,
@@ -114,7 +115,15 @@ function FolderCreateForm({
   );
 }
 
-export function FoldersPage() {
+export function FoldersPage({
+  notesState,
+  onRetryNotes,
+  onOpenNote,
+}: {
+  notesState: LoadState<DashboardNote[]>;
+  onRetryNotes: () => void;
+  onOpenNote: (noteId: number) => void;
+}) {
   const [state, setState] = useState<LoadState<DashboardFolder[]>>({
     status: "loading",
   });
@@ -180,6 +189,12 @@ export function FoldersPage() {
           }}
         />
       )}
+
+      <FolderSearchPage
+        notesState={notesState}
+        onRetryNotes={onRetryNotes}
+        onOpenNote={onOpenNote}
+      />
 
       {state.status === "loading" ? (
         <div className="folder-loading" role="status" aria-label="Loading folders">
@@ -457,8 +472,8 @@ export function FolderDetailPage({
                 {notes.data.map((note) => (
                   <article className="note-row" key={note.id}>
                     <button className="note-row-select-button" type="button" onClick={() => onOpenNote(note.id)} aria-label={`View note: ${note.title || "Untitled note"}`}>
-                      <span className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : ""}`} aria-hidden="true"><FileText size={16} /></span>
-                      <span className="note-row-copy"><span className="note-row-title">{note.title || "Untitled note"}</span><span className="note-metadata">{note.note_type === "VIDEO" ? "Video note" : "Standalone note"}</span></span>
+                      <span className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : note.note_type === "STANDALONE" && note.source_url?.trim() ? " is-url" : ""}`} aria-hidden="true">{note.note_type === "STANDALONE" && note.source_url?.trim() ? <Globe size={16} /> : <FileText size={16} />}</span>
+                      <span className="note-row-copy"><span className="note-row-title">{note.title || "Untitled note"}</span><span className="note-metadata">{note.note_type === "VIDEO" ? "Video note" : note.source_url?.trim() ? "URL note" : "Standalone note"}</span></span>
                     </button>
                   </article>
                 ))}
@@ -602,7 +617,7 @@ export function FolderSearchPage({
             {matchingNotes.map((note) => (
               <article className="note-row" key={note.id}>
                 <button className="note-row-select-button" type="button" onClick={() => onOpenNote(note.id)} aria-label={`View note: ${note.title || "Untitled note"}`}>
-                  <span className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : ""}`} aria-hidden="true"><FileText size={16} /></span>
+                  <span className={`note-type-icon${note.note_type === "VIDEO" ? " is-video" : note.note_type === "STANDALONE" && note.source_url?.trim() ? " is-url" : ""}`} aria-hidden="true">{note.note_type === "STANDALONE" && note.source_url?.trim() ? <Globe size={16} /> : <FileText size={16} />}</span>
                   <span className="note-row-copy"><span className="note-row-title">{note.title || "Untitled note"}</span><span className="note-metadata">{note.folder_path.length ? note.folder_path.map((folder) => folder.name).join(" / ") : "No Folder"}</span></span>
                   <ArrowUpRight size={15} aria-hidden="true" />
                 </button>

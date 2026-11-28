@@ -5,6 +5,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone as datetime_timezone
+from urllib.parse import urlsplit
 
 from django.db import transaction
 from django.db.models import Prefetch
@@ -26,6 +27,21 @@ from .models import (
 )
 
 _suppressed = ContextVar("sync_capture_suppressed", default=False)
+
+
+def _is_valid_source_url(value):
+    if not value:
+        return True
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+    )
 
 
 @contextmanager
@@ -81,6 +97,8 @@ def portable_snapshot(instance):
     snapshot = {
         "sync_uuid": str(instance.sync_uuid),
         "title": instance.title,
+        "source_url": instance.source_url,
+        "source_title": instance.source_title,
         "document": instance.document,
         "content": instance.content,
         "note_type": instance.note_type,
@@ -671,11 +689,28 @@ def apply_change(owner, change, peer_installation):
                     note_type = snapshot.get("note_type", Note.NoteType.STANDALONE)
                     title = snapshot.get("title")
                     content = snapshot.get("content", "")
+                    existing_source = Note.objects.filter(
+                        user=owner,
+                        sync_uuid=local_uuid,
+                    ).values("source_url", "source_title").first()
+                    source_url = snapshot.get(
+                        "source_url",
+                        existing_source["source_url"] if existing_source else "",
+                    )
+                    source_title = snapshot.get(
+                        "source_title",
+                        existing_source["source_title"] if existing_source else "",
+                    )
                     if (
                         not isinstance(doc, dict)
                         or not isinstance(title, str)
                         or len(title) > 500
                         or not isinstance(content, str)
+                        or not isinstance(source_url, str)
+                        or len(source_url) > 2048
+                        or not _is_valid_source_url(source_url)
+                        or not isinstance(source_title, str)
+                        or len(source_title) > 500
                     ):
                         raise ValueError("invalid_note_snapshot")
                     if note_type not in {Note.NoteType.VIDEO, Note.NoteType.STANDALONE}:
@@ -710,6 +745,8 @@ def apply_change(owner, change, peer_installation):
                         defaults={
                             "title": title, "document": doc,
                             "content": content,
+                            "source_url": source_url,
+                            "source_title": source_title,
                             "note_type": note_type, "folder": folder,
                             "video": video,
                             "timestamp_seconds": snapshot.get("timestamp_seconds"),

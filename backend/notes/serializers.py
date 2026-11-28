@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from rest_framework import serializers
 
 from .models import Note
@@ -38,6 +40,8 @@ class NoteSerializer(serializers.ModelSerializer):
             "id",
             "sync_uuid",
             "title",
+            "source_url",
+            "source_title",
             "document",
             "content",
             "note_type",
@@ -156,6 +160,21 @@ class NoteSerializer(serializers.ModelSerializer):
                     f"Block {index} is missing content."
                 )
 
+        return value
+
+    def validate_source_url(self, value):
+        if not value:
+            return value
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            raise serializers.ValidationError(
+                "Source URL must be a public HTTP or HTTPS page URL."
+            )
         return value
 
     def validate(self, attrs):

@@ -3,6 +3,7 @@ export type NoteBlockType =
   | "heading"
   | "equation"
   | "timestamp"
+  | "page_position"
   | "image"
   | "url"
   | "code"
@@ -19,13 +20,22 @@ export interface ChecklistItem {
   checked: boolean;
 }
 
+export interface PagePositionData {
+  source_url: string;
+  scroll_x: number;
+  scroll_y: number;
+  progress: number;
+  document_height: number;
+  viewport_height: number;
+}
+
 export interface NoteBlock {
   id: string;
   type: NoteBlockType;
   content: string;
   [key: string]: unknown;
   metadata?: {
-    source?: "url" | "upload" | "youtube";
+    source?: "url" | "upload" | "youtube" | "page";
     url?: string;
     alt?: string;
     title?: string;
@@ -36,6 +46,8 @@ export interface NoteBlock {
     language?: string;
     shell?: string;
     timestamp_seconds?: number;
+    caption?: string;
+    page_position?: PagePositionData;
     image?: string;
     table_rows?: string[][];
     table_has_header?: boolean;
@@ -58,6 +70,8 @@ export interface FolderPathItem {
 export interface VideoNote {
   id: number;
   title: string;
+  source_url?: string;
+  source_title?: string;
   content: string;
   document?: NoteDocument;
   note_type: string;
@@ -224,6 +238,14 @@ export function documentToPlainText(noteDocument: NoteDocument): string {
         return `[${block.content}]`;
       }
 
+      if (block.type === "page_position") {
+        const caption =
+          typeof block.metadata?.caption === "string"
+            ? block.metadata.caption.trim()
+            : "";
+        return `[Page position: ${caption || block.content}]`;
+      }
+
       if (block.type === "image") {
         return block.metadata?.alt
           ? `[Image: ${block.metadata.alt}]`
@@ -233,7 +255,9 @@ export function documentToPlainText(noteDocument: NoteDocument): string {
       if (block.type === "screenshot") {
         return typeof block.metadata?.timestamp_seconds === "number"
           ? `[Video screenshot at ${block.metadata.timestamp_seconds}s]`
-          : "[Video screenshot]";
+          : block.metadata?.source === "page"
+            ? `[Page section screenshot${block.metadata.alt ? `: ${block.metadata.alt}` : ""}]`
+            : "[Video screenshot]";
       }
 
       if (block.type === "url") {
